@@ -11,25 +11,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const isPlaceholder = (url: string) => !url || url.includes('your-project.supabase.co');
 
 if (supabaseUrl && !isPlaceholder(supabaseUrl)) {
-  console.log('Supabase initialized with URL:', supabaseUrl);
-  
-  // Test connection to health endpoint or just the URL
-  if (typeof window !== 'undefined') {
-    fetch(`${supabaseUrl}/auth/v1/health`)
-      .then(res => console.log('Supabase Auth Health Check:', res.status === 200 ? 'OK' : res.status))
-      .catch(err => console.error('Supabase Connectivity Test Failed:', err));
-  }
+  console.log('Supabase client check: URL present');
 }
 
 export const supabase = (supabaseUrl && supabaseAnonKey && !isPlaceholder(supabaseUrl)) 
   ? createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        // Use the native window.fetch to avoid any Proxy-induced "Illegal invocation"
-        fetch: (...args) => window.fetch(...args),
-      },
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: true
       }
     })
   : null;

@@ -7,34 +7,39 @@
     <script>
       (function() {
         if (typeof window !== 'undefined') {
-          // 1. Try to make fetch writable on window directly
-          try {
-            var f = window.fetch;
-            Object.defineProperty(window, 'fetch', {
-              value: f,
-              writable: true,
-              configurable: true,
-              enumerable: true
-            });
-          } catch (e) {}
-
-          // 2. Define global as a Proxy to catch attempts to overwrite fetch via global.fetch
-          if (!window.global) {
-            try {
-              window.global = new Proxy(window, {
-                set: function(t, p, v) {
-                  if (p === 'fetch') return true;
-                  try { t[p] = v; } catch(e) {}
-                  return true;
-                },
-                get: function(t, p) {
-                  var v = t[p];
-                  return typeof v === 'function' ? v.bind(t) : v;
+          // Define 'global' and 'globalThis' as Proxies to window to catch attempts to overwrite read-only properties like 'fetch'
+          var proxyHandler = {
+            get: function(t, p) {
+              if (p === 'global' || p === 'globalThis') return window.global;
+              var v = t[p];
+              // Bind native functions to window to avoid "Illegal invocation"
+              if (typeof v === 'function' && v.toString().includes('[native code]')) {
+                return v.bind(t);
+              }
+              return v;
+            },
+            set: function(t, p, v) {
+              // Absorb attempts to overwrite read-onlys via global.fetch or globalThis.fetch
+              if (p === 'fetch') return true;
+              try {
+                // Check if the property is writable on the actual window object
+                var descriptor = Object.getOwnPropertyDescriptor(t, p);
+                if (descriptor && !descriptor.writable && !descriptor.set) {
+                  return true; // Silent success
                 }
-              });
-            } catch (e) {
-              window.global = window;
+                t[p] = v;
+              } catch(e) {}
+              return true;
             }
+          };
+
+          try {
+            window.global = new Proxy(window, proxyHandler);
+            if (!window.globalThis) {
+              window.globalThis = window.global;
+            }
+          } catch (e) {
+            window.global = window;
           }
         }
       })();

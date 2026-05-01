@@ -37,6 +37,7 @@ const DEFAULT_PROFILE: UserProfile = {
 };
 
 export default function Dashboard() {
+  console.log("Dashboard component render start");
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -47,32 +48,48 @@ export default function Dashboard() {
 
   // Initial load
   useEffect(() => {
+    let mounted = true;
+    console.log("Dashboard: initiating data load...");
+    
     const loadData = async () => {
+      if (!mounted) return;
       setIsLoading(true);
       
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          setCurrentUser(user);
+      try {
+        if (supabase) {
+          console.log("Dashboard: fetching user...");
+          const { data, error: userError } = await supabase.auth.getUser();
+          const user = data?.user;
+          
+          if (userError) console.error("Dashboard: getUser error:", userError);
+          
+          if (mounted) {
+            setCurrentUser(user);
+          }
           
           if (user) {
-            console.log("Session active pour:", user.email);
+            console.log("Dashboard: user found", user.email);
             const { data: profileData, error: profileError } = await supabase
               .from('wc_profiles')
               .select('*')
               .eq('id', user.id)
               .maybeSingle();
 
+            if (profileError) console.error("Dashboard: profile fetch error:", profileError);
+
             if (profileData && !profileError) {
+              console.log("Dashboard: profile record found", Object.keys(profileData));
               const { data: linksData, error: linksError } = await supabase
                 .from('wc_links')
                 .select('*')
                 .eq('profile_id', user.id)
                 .order('position', { ascending: true });
 
-              if (!linksError) {
+              if (linksError) console.error("Dashboard: links fetch error:", linksError);
+
+              if (mounted && !linksError) {
                 const fetchedProfile: UserProfile = {
-                  name: profileData.name || '',
+                  name: profileData.full_name || profileData.name || '',
                   username: profileData.username || '',
                   bio: profileData.bio || '',
                   avatar: profileData.avatar_url || '',
@@ -87,34 +104,52 @@ export default function Dashboard() {
                 };
                 setProfile(fetchedProfile);
                 localStorage.setItem('womenCardsProfile', JSON.stringify(fetchedProfile));
+                console.log("Dashboard: profile state updated");
               }
             }
           }
-        } catch (err) {
-          console.error("Supabase load error:", err);
+        } else {
+          console.log("Dashboard: Supabase missing, using local storage");
+          const saved = localStorage.getItem('womenCardsProfile');
+          if (saved && mounted) {
+            setProfile(JSON.parse(saved));
+          }
         }
-      } else {
-        // Fallback to local storage if no Supabase
-        const saved = localStorage.getItem('womenCardsProfile');
-        if (saved) {
-          setProfile(JSON.parse(saved));
+      } catch (err) {
+        console.error("Dashboard: critical load error:", err);
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+          console.log("Dashboard: loading finished");
         }
       }
-      setIsLoading(false);
     };
 
     loadData();
+    return () => { mounted = false; };
   }, []);
 
   // Handle session sync
   useEffect(() => {
     if (!supabase) return;
     
-    const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event, session) => {
-      setCurrentUser(session?.user ?? null);
-    });
+    // Safety check for onAuthStateChanged
+    if (!supabase.auth || typeof supabase.auth.onAuthStateChanged !== 'function') {
+      console.warn("Dashboard: Supabase Auth not fully initialized or functional.");
+      return;
+    }
 
-    return () => subscription.unsubscribe();
+    try {
+      const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event, session) => {
+        setCurrentUser(session?.user ?? null);
+      });
+
+      return () => {
+        if (subscription) subscription.unsubscribe();
+      };
+    } catch (err) {
+      console.error("Dashboard: Auth sync setup error:", err);
+    }
   }, []);
 
   const saveToSupabase = useCallback(async (currentProfile: UserProfile) => {
@@ -154,10 +189,10 @@ export default function Dashboard() {
       console.log("Saving for user ID:", user.id);
 
       // 1. Upsert profile
-      const profileToUpsert = {
+      const profileToUpsert: any = {
         id: user.id,
         username: currentProfile.username.trim(),
-        name: currentProfile.name.trim(),
+        full_name: currentProfile.name.trim(),
         bio: currentProfile.bio,
         avatar_url: currentProfile.avatar,
         theme: currentProfile.theme,
@@ -262,6 +297,38 @@ export default function Dashboard() {
     localStorage.removeItem('isAuthenticated');
     navigate('/login');
   };
+
+  const currentTheme = THEMES[profile.theme as ThemeType] || THEMES['elegant-gold'];
+
+  // Redirect to login if not authenticated after loading
+  useEffect(() => {
+    if (!isLoading && supabase && !currentUser) {
+      console.log("Dashboard: No user authenticated, redirecting to login...");
+      navigate('/login');
+    }
+  }, [isLoading, currentUser, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#fcfcfb]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="animate-spin text-[#c5a059]" size={40} />
+          <p className="text-sm font-medium text-black/40 animate-pulse uppercase tracking-widest">Chargement de votre profil...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser && !isLoading && supabase) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#fcfcfb]">
+        <div className="text-center">
+          <Loader2 className="animate-spin text-[#c5a059] mx-auto mb-4" size={32} />
+          <p className="text-sm text-black/40">Redirection vers la connexion...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#fcfcfb] font-sans overflow-hidden">
@@ -555,33 +622,34 @@ export default function Dashboard() {
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#2a2a2a] rounded-b-2xl z-20" />
             
             {/* The actual preview window */}
-            <div className={`w-[320px] h-[640px] rounded-[2rem] overflow-y-auto no-scrollbar relative z-10 transition-colors duration-500 ${THEMES[profile.theme as ThemeType].bg}`}>
+            <div className={`w-[320px] h-[640px] rounded-[2rem] overflow-y-auto no-scrollbar relative z-10 transition-colors duration-500 ${currentTheme.bg}`}>
               <div className="p-8 pt-16 flex flex-col items-center">
                 <img 
                   src={profile.avatar} 
                   alt="Preview Avatar" 
                   className="w-24 h-24 rounded-full object-cover shadow-xl mb-6 ring-4 ring-white/10"
                 />
-                <h2 className={`text-2xl font-bold text-center mb-2 ${THEMES[profile.theme as ThemeType].text}`}>
+                <h2 className={`text-2xl font-bold text-center mb-2 ${currentTheme.text}`}>
                   {profile.name}
                 </h2>
-                <p className={`text-sm text-center mb-10 opacity-70 px-4 ${THEMES[profile.theme as ThemeType].text}`}>
+                <p className={`text-sm text-center mb-10 opacity-70 px-4 ${currentTheme.text}`}>
                   {profile.bio}
                 </p>
+
 
                 <div className="w-full space-y-4">
                   {profile.links.filter(l => l.isActive).map(link => (
                     <div 
                       key={link.id}
-                      className={`w-full py-4 text-center rounded-xl font-bold shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98] ${THEMES[profile.theme as ThemeType].button} ${THEMES[profile.theme as ThemeType].buttonText}`}
+                      className={`w-full py-4 text-center rounded-xl font-bold shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98] ${currentTheme.button} ${currentTheme.buttonText}`}
                     >
                       {link.title}
                     </div>
                   ))}
                 </div>
-
+ 
                 <div className="mt-auto pt-20 pb-4">
-                   <div className={`text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 text-center ${THEMES[profile.theme as ThemeType].text}`}>
+                   <div className={`text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 text-center ${currentTheme.text}`}>
                       Powered by women.cards
                    </div>
                 </div>
