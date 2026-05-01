@@ -19,16 +19,8 @@ export default function Login() {
     setSuccess('');
     setLoading(true);
 
-    // Demo check
-    if (email === 'admin@women.cards' && password === 'women.cards2026') {
-      localStorage.setItem('isAuthenticated', 'true');
-      navigate('/dashboard');
-      setLoading(false);
-      return;
-    }
-
     if (!supabase) {
-      setError("Supabase n'est pas configuré. Utilisez les identifiants démo.");
+      setError("Le service d'authentification n'est pas disponible.");
       setLoading(false);
       return;
     }
@@ -179,22 +171,6 @@ export default function Login() {
           </button>
         </div>
 
-        <div className="mt-10 p-6 bg-[#faf9f6] rounded-[2rem] border border-black/5">
-          <p className="text-[10px] font-bold mb-4 uppercase tracking-[0.2em] text-[#c5a059] flex items-center gap-2">
-            <span className="w-2 h-2 bg-[#c5a059] rounded-full animate-pulse" />
-            Demo Credentials
-          </p>
-          <div className="space-y-3 text-xs font-medium text-black/60">
-            <div className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-black/5 shadow-sm">
-              <span className="text-[10px] uppercase text-black/30">Email</span>
-              <code className="text-black font-bold">admin@women.cards</code>
-            </div>
-            <div className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-black/5 shadow-sm">
-              <span className="text-[10px] uppercase text-black/30">Pass</span>
-              <code className="text-black font-bold">women.cards2026</code>
-            </div>
-          </div>
-        </div>
       </motion.div>
     </div>
   );
