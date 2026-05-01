@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>women.cards | Your Professional Digital Card</title>
+    <script>
+      (function() {
+        if (typeof window !== 'undefined') {
+          // 1. Try to make fetch writable on window directly
+          try {
+            var f = window.fetch;
+            Object.defineProperty(window, 'fetch', {
+              value: f,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          } catch (e) {}
+
+          // 2. Define global as a Proxy to catch attempts to overwrite fetch via global.fetch
+          if (!window.global) {
+            try {
+              window.global = new Proxy(window, {
+                set: function(t, p, v) {
+                  if (p === 'fetch') return true;
+                  try { t[p] = v; } catch(e) {}
+                  return true;
+                },
+                get: function(t, p) {
+                  var v = t[p];
+                  return typeof v === 'function' ? v.bind(t) : v;
+                }
+              });
+            } catch (e) {
+              window.global = window;
+            }
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

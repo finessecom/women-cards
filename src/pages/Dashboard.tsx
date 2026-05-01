@@ -1,0 +1,605 @@
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Plus, 
+  GripVertical, 
+  Trash2, 
+  Layout, 
+  User, 
+  Link as LinkIcon, 
+  ExternalLink,
+  ChevronRight,
+  LogOut,
+  Palette,
+  Check,
+  Save,
+  Loader2
+} from 'lucide-react';
+import { UserProfile, Link, THEMES, ThemeType } from '../types';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+
+const DEFAULT_PROFILE: UserProfile = {
+  name: "Sarah Jenkins",
+  username: "sarah",
+  bio: "Founder at Bloom Growth | Strategic Advisor | Speaker",
+  avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=400",
+  theme: 'elegant-gold',
+  links: [
+    { id: '1', title: 'Schedule a Call', url: 'https://calendly.com', isActive: true },
+    { id: '2', title: 'My New Course: Leading for Impact', url: 'https://course.com', isActive: true },
+    { id: '3', title: 'Read my latest article in Forbes', url: 'https://forbes.com', isActive: true }
+  ],
+  socials: {
+    instagram: '@sarahj_leads',
+    linkedin: 'sarahjenkins'
+  }
+};
+
+export default function Dashboard() {
+  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'links' | 'appearance' | 'profile'>('profile');
+  const navigate = useNavigate();
+
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Initial load
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      
+      if (supabase) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          setCurrentUser(user);
+          
+          if (user) {
+            console.log("Session active pour:", user.email);
+            const { data: profileData, error: profileError } = await supabase
+              .from('wc_profiles')
+              .select('*')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            if (profileData && !profileError) {
+              const { data: linksData, error: linksError } = await supabase
+                .from('wc_links')
+                .select('*')
+                .eq('profile_id', user.id)
+                .order('position', { ascending: true });
+
+              if (!linksError) {
+                const fetchedProfile: UserProfile = {
+                  name: profileData.name || '',
+                  username: profileData.username || '',
+                  bio: profileData.bio || '',
+                  avatar: profileData.avatar_url || '',
+                  theme: profileData.theme || 'elegant-gold',
+                  links: (linksData || []).map((l: any) => ({
+                    id: l.id.toString(),
+                    title: l.title || '',
+                    url: l.url || '',
+                    isActive: l.is_active
+                  })),
+                  socials: profileData.socials || {}
+                };
+                setProfile(fetchedProfile);
+                localStorage.setItem('womenCardsProfile', JSON.stringify(fetchedProfile));
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Supabase load error:", err);
+        }
+      } else {
+        // Fallback to local storage if no Supabase
+        const saved = localStorage.getItem('womenCardsProfile');
+        if (saved) {
+          setProfile(JSON.parse(saved));
+        }
+      }
+      setIsLoading(false);
+    };
+
+    loadData();
+  }, []);
+
+  // Handle session sync
+  useEffect(() => {
+    if (!supabase) return;
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const saveToSupabase = useCallback(async (currentProfile: UserProfile) => {
+    if (!supabase) {
+      localStorage.setItem('womenCardsProfile', JSON.stringify(currentProfile));
+      alert("Note: Supabase n'est pas configuré. Sauvegarde locale uniquement.");
+      return;
+    }
+
+    if (!currentProfile.username) {
+      alert("Le nom d'utilisateur est obligatoire pour enregistrer votre profil.");
+      return;
+    }
+
+    setIsSaving(true);
+    console.log("Starting save process for profile:", currentProfile);
+
+    try {
+      // Use getSession for a faster check first
+      const { data: { session } } = await supabase.auth.getSession();
+      let user = session?.user;
+
+      if (!user) {
+        // Fallback to getUser which is more thorough
+        const { data: { user: fetchUser } } = await supabase.auth.getUser();
+        user = fetchUser;
+      }
+
+      if (!user) {
+         console.error("Save failed: No active user session found.");
+         alert("Session expirée ou utilisateur non trouvé. Veuillez vous reconnecter.");
+         localStorage.setItem('womenCardsProfile', JSON.stringify(currentProfile));
+         navigate('/login');
+         return;
+      }
+
+      console.log("Saving for user ID:", user.id);
+
+      // 1. Upsert profile
+      const profileToUpsert = {
+        id: user.id,
+        username: currentProfile.username.trim(),
+        name: currentProfile.name.trim(),
+        bio: currentProfile.bio,
+        avatar_url: currentProfile.avatar,
+        theme: currentProfile.theme,
+        socials: currentProfile.socials || {},
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: profileError } = await supabase
+        .from('wc_profiles')
+        .upsert(profileToUpsert, { onConflict: 'id' });
+
+      if (profileError) {
+        console.error("Profile Database Error:", profileError);
+        if (profileError.code === '23505') {
+          throw new Error("Ce nom d'utilisateur est déjà pris. Veuillez en choisir un autre.");
+        }
+        throw new Error(`Erreur Profil (Table wc_profiles) : ${profileError.message} (Code: ${profileError.code})`);
+      }
+
+      // 2. Sync links
+      console.log("Syncing links...", currentProfile.links.length);
+      const { error: deleteError } = await supabase
+        .from('wc_links')
+        .delete()
+        .eq('profile_id', user.id);
+
+      if (deleteError) {
+        console.error("Links Sync Delete Error:", deleteError);
+        throw new Error(`Erreur synchronisation Liens (Suppression) : ${deleteError.message}`);
+      }
+
+      if (currentProfile.links.length > 0) {
+        const linksToInsert = currentProfile.links.map((link, index) => ({
+          profile_id: user.id,
+          title: link.title.trim(),
+          url: link.url.trim(),
+          is_active: link.isActive,
+          position: index
+        }));
+
+        const { error: insertError } = await supabase
+          .from('wc_links')
+          .insert(linksToInsert);
+
+        if (insertError) {
+          console.error("Links Sync Insert Error:", insertError);
+          throw new Error(`Erreur synchronisation Liens (Insertion) : ${insertError.message}`);
+        }
+      }
+
+      localStorage.setItem('womenCardsProfile', JSON.stringify(currentProfile));
+      
+      // Verify the save worked
+      const { data: verify, error: verifyErr } = await supabase
+        .from('wc_profiles')
+        .select('updated_at')
+        .eq('id', user.id)
+        .maybeSingle();
+      
+      if (verifyErr || !verify) {
+        console.warn("Verify Save Warning:", verifyErr || "Profile not found after save");
+      } else {
+        console.log("Save verified at:", verify.updated_at);
+      }
+
+      alert('Changements enregistrés avec succès dans Supabase !');
+    } catch (err: any) {
+      console.error("Critical Save Failure:", err);
+      alert(`Erreur d'enregistrement : ${err.message || 'Problème de connexion'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [navigate]);
+
+  // Sync profile to local storage on every change
+  useEffect(() => {
+    localStorage.setItem('womenCardsProfile', JSON.stringify(profile));
+  }, [profile]);
+
+  const addLink = () => {
+    const newLink: Link = {
+      id: Date.now().toString(),
+      title: 'New Link',
+      url: 'https://',
+      isActive: true
+    };
+    setProfile(prev => ({ ...prev, links: [newLink, ...prev.links] }));
+  };
+
+  const updateLink = (id: string, updates: Partial<Link>) => {
+    setProfile(prev => ({
+      ...prev,
+      links: prev.links.map(l => l.id === id ? { ...l, ...updates } : l)
+    }));
+  };
+
+  const deleteLink = (id: string) => {
+    setProfile(prev => ({ ...prev, links: prev.links.filter(l => l.id !== id) }));
+  };
+
+  const logout = () => {
+    localStorage.removeItem('isAuthenticated');
+    navigate('/login');
+  };
+
+  return (
+    <div className="flex h-screen bg-[#fcfcfb] font-sans overflow-hidden">
+      {/* Sidebar navigation */}
+      <aside className="w-20 md:w-64 border-r border-black/5 bg-white flex flex-col items-center md:items-stretch py-8">
+        <div className="px-6 mb-12 flex items-center gap-3">
+          <div className="w-8 h-8 md:w-10 md:h-10 bg-[#c5a059] rounded-lg rotate-12 flex items-center justify-center text-white font-bold text-xl">w</div>
+          <span className="hidden md:block font-bold text-lg tracking-tight">women.cards</span>
+        </div>
+
+        <nav className="flex-grow space-y-2 px-3">
+          {[
+            { id: 'profile', icon: <User size={20} />, label: 'Profile' },
+            { id: 'appearance', icon: <Palette size={20} />, label: 'Appearance' },
+            { id: 'links', icon: <LinkIcon size={20} />, label: 'Links' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
+                activeTab === tab.id 
+                  ? 'bg-black text-white shadow-lg shadow-black/10' 
+                  : 'text-black/60 hover:bg-black/5'
+              }`}
+            >
+              <span className={activeTab === tab.id ? 'text-white' : 'text-black/40'}>{tab.icon}</span>
+              <span className="hidden md:block font-medium">{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="px-3 pt-6 border-t border-black/5">
+          <button 
+            onClick={logout}
+            className="w-full flex items-center gap-4 px-4 py-3 text-black/40 hover:text-red-500 transition-colors"
+          >
+            <LogOut size={20} />
+            <span className="hidden md:block font-medium">Logout</span>
+          </button>
+        </div>
+
+        {/* User Status Tag */}
+        <div className="px-6 py-4 mt-2">
+          <div className={`p-3 rounded-2xl border flex items-center gap-3 ${currentUser ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
+            <div className={`w-2 h-2 rounded-full ${currentUser ? 'bg-green-500' : 'bg-orange-500'} animate-pulse`} />
+            <div className="overflow-hidden">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-black/30">Connecté en tant que</p>
+              <p className="text-xs font-bold truncate text-black/70">
+                {currentUser?.email || 'Mode Démo / Local'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Editor Area */}
+      <main className="flex-grow overflow-y-auto px-6 md:px-12 py-12 flex flex-col md:flex-row gap-12">
+        <div className="flex-grow max-w-2xl">
+          <AnimatePresence mode="wait">
+            {activeTab === 'profile' && (
+              <motion.div 
+                key="profile"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-10"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h1 className="text-3xl font-bold">Profile Details</h1>
+                  <button 
+                    onClick={() => saveToSupabase(profile)}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
+                  >
+                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-8 bg-white p-8 rounded-3xl border border-black/5 shadow-sm">
+                  <div className="relative group">
+                    <img 
+                      src={profile.avatar} 
+                      alt="Avatar" 
+                      className="w-24 h-24 rounded-full object-cover shadow-lg group-hover:opacity-80 transition-opacity"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                      <User size={24} className="text-white" />
+                    </div>
+                  </div>
+                  <div className="space-y-4 flex-grow">
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-1">Avatar URL</label>
+                      <input 
+                        type="text" 
+                        value={profile.avatar}
+                        onChange={(e) => setProfile(prev => ({ ...prev, avatar: e.target.value }))}
+                        className="w-full bg-[#fcfcfb] border-none rounded-lg text-sm focus:ring-[#c5a059]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Username (www.women.cards/your-pseudo)</label>
+                    <div className="relative">
+                      <span className="absolute left-6 top-1/2 -translate-y-1/2 opacity-30 font-medium">women.cards/</span>
+                      <input 
+                        type="text" 
+                        value={profile.username}
+                        onChange={(e) => setProfile(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') }))}
+                        className="w-full bg-white border border-black/5 py-4 pl-[124px] pr-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                        placeholder="pseudo"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Display Name</label>
+                    <input 
+                      type="text" 
+                      value={profile.name}
+                      onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Short Bio</label>
+                    <textarea 
+                      value={profile.bio}
+                      onChange={(e) => setProfile(prev => ({ ...prev, bio: e.target.value }))}
+                      rows={3}
+                      className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl opacity-70 focus:ring-[#c5a059] shadow-sm resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Instagram Username</label>
+                      <input 
+                        type="text" 
+                        value={profile.socials?.instagram || ''}
+                        onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, instagram: e.target.value } }))}
+                        className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                        placeholder="@username"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">LinkedIn Username</label>
+                      <input 
+                        type="text" 
+                        value={profile.socials?.linkedin || ''}
+                        onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, linkedin: e.target.value } }))}
+                        className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                        placeholder="your-profile"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'appearance' && (
+              <motion.div 
+                key="appearance"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h1 className="text-3xl font-bold">Theme Selection</h1>
+                  <button 
+                    onClick={() => saveToSupabase(profile)}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
+                  >
+                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  {(Object.keys(THEMES) as ThemeType[]).map(themeKey => (
+                    <button
+                      key={themeKey}
+                      onClick={() => setProfile(prev => ({ ...prev, theme: themeKey }))}
+                      className={`relative aspect-[16/9] rounded-2xl overflow-hidden border-2 transition-all p-4 flex items-center justify-center ${
+                        profile.theme === themeKey ? 'border-[#c5a059]' : 'border-black/5 hover:border-black/20'
+                      } ${THEMES[themeKey].bg}`}
+                    >
+                      <div className={`${THEMES[themeKey].text} font-bold`}>
+                        {themeKey.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
+                      </div>
+                      {profile.theme === themeKey && (
+                        <div className="absolute top-3 right-3 w-6 h-6 bg-[#c5a059] rounded-full flex items-center justify-center text-white">
+                          <Check size={14} strokeWidth={4} />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'links' && (
+              <motion.div 
+                key="links"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h1 className="text-3xl font-bold">Your Links</h1>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => saveToSupabase(profile)}
+                      disabled={isSaving}
+                      className="flex items-center gap-2 px-6 py-2 border-2 border-black text-black rounded-full font-bold hover:bg-black hover:text-white disabled:opacity-50 transition-all"
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button 
+                      onClick={addLink}
+                      className="bg-[#c5a059] text-white px-6 py-2 rounded-full font-bold shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      <Plus size={20} /> Add New Link
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {profile.links.map((link) => (
+                    <div key={link.id} className="bg-white border border-black/5 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                      <div className="flex gap-4">
+                        <div className="cursor-grab opacity-20 hover:opacity-50 transition-opacity">
+                          <GripVertical size={24} />
+                        </div>
+                        <div className="flex-grow space-y-4">
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="text" 
+                              value={link.title}
+                              onChange={(e) => updateLink(link.id, { title: e.target.value })}
+                              placeholder="Title"
+                              className="w-full font-bold text-lg bg-transparent border-none p-0 focus:ring-0 placeholder:opacity-30"
+                            />
+                            <div className="flex items-center gap-2">
+                              {/* Toggle */}
+                              <button 
+                                onClick={() => updateLink(link.id, { isActive: !link.isActive })}
+                                className={`w-10 h-5 rounded-full transition-colors relative ${link.isActive ? 'bg-[#c5a059]' : 'bg-black/10'}`}
+                              >
+                                <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${link.isActive ? 'left-6' : 'left-1'}`} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <LinkIcon size={16} className="text-black/30" />
+                            <input 
+                              type="text" 
+                              value={link.url}
+                              onChange={(e) => updateLink(link.id, { url: e.target.value })}
+                              placeholder="URL"
+                              className="w-full text-sm opacity-60 bg-transparent border-none p-0 focus:ring-0 placeholder:opacity-30"
+                            />
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => deleteLink(link.id)}
+                          className="text-black/10 hover:text-red-500 transition-colors p-2"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {profile.links.length === 0 && (
+                    <div className="text-center py-20 bg-black/5 rounded-3xl border-2 border-dashed border-black/10">
+                      <p className="opacity-40 font-medium">No links yet. Start by adding one!</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Live Mobile Preview */}
+        <div className="hidden lg:flex flex-col items-center sticky top-12 h-fit">
+          <div className="relative p-4 bg-[#2a2a2a] rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-[#333]">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#2a2a2a] rounded-b-2xl z-20" />
+            
+            {/* The actual preview window */}
+            <div className={`w-[320px] h-[640px] rounded-[2rem] overflow-y-auto no-scrollbar relative z-10 transition-colors duration-500 ${THEMES[profile.theme as ThemeType].bg}`}>
+              <div className="p-8 pt-16 flex flex-col items-center">
+                <img 
+                  src={profile.avatar} 
+                  alt="Preview Avatar" 
+                  className="w-24 h-24 rounded-full object-cover shadow-xl mb-6 ring-4 ring-white/10"
+                />
+                <h2 className={`text-2xl font-bold text-center mb-2 ${THEMES[profile.theme as ThemeType].text}`}>
+                  {profile.name}
+                </h2>
+                <p className={`text-sm text-center mb-10 opacity-70 px-4 ${THEMES[profile.theme as ThemeType].text}`}>
+                  {profile.bio}
+                </p>
+
+                <div className="w-full space-y-4">
+                  {profile.links.filter(l => l.isActive).map(link => (
+                    <div 
+                      key={link.id}
+                      className={`w-full py-4 text-center rounded-xl font-bold shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98] ${THEMES[profile.theme as ThemeType].button} ${THEMES[profile.theme as ThemeType].buttonText}`}
+                    >
+                      {link.title}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-auto pt-20 pb-4">
+                   <div className={`text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 text-center ${THEMES[profile.theme as ThemeType].text}`}>
+                      Powered by women.cards
+                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-8 flex gap-4">
+             <a 
+              href={`/${profile.username}`} 
+              target="_blank" 
+              className="px-6 py-2 bg-white border border-black/10 rounded-full font-bold text-sm flex items-center gap-2 hover:bg-black hover:text-white transition-all shadow-md group"
+            >
+              View live page <ExternalLink size={14} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+            </a>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
