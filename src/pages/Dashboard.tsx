@@ -547,9 +547,9 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
 
                 <div className="space-y-6">
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Username (www.women.cards/your-pseudo)</label>
+                    <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Username ({window.location.host}/{profile.username || 'pseudo'})</label>
                     <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 opacity-30 font-medium">women.cards/</span>
+                      <span className="absolute left-6 top-1/2 -translate-y-1/2 opacity-30 font-medium text-xs">{window.location.host}/</span>
                       <input 
                         type="text" 
                         value={profile.username}
@@ -918,12 +918,12 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
           
           <div className="mt-8 flex flex-col gap-4 w-full">
             <a 
-              href={`/${profile.username}`} 
+              href={`${window.location.origin}/${profile.username}`} 
               target="_blank" 
               rel="noreferrer"
-              className="px-6 py-3 bg-white border border-black/10 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-black hover:text-white transition-all shadow-md group w-full"
+              className="px-6 py-3 bg-[#c5a059] text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg group w-full"
             >
-              View live page <ExternalLink size={14} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+              Voir ma page en ligne <ExternalLink size={14} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
             </a>
 
             <div className="bg-black/5 rounded-2xl p-4 w-full">
@@ -943,7 +943,7 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
                 {saveStatus.type === 'error' && (saveStatus.message?.includes('base de données') || saveStatus.message?.includes('RLS')) && (
                   <button 
-                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Réparer les colonnes (wc_profiles)\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Garantir l'unicité du pseudo\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 3. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 4. ACCÈS PUBLIC (POUR QUE LES GENS VOIENT VOTRE CARTE)\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 5. ACCÈS PROPRIÉTAIRE (POUR MODIFIER)\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
+                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Réparer les colonnes (wc_profiles)\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Garantir l'unicité du pseudo\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 3. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 4. ACCÈS PUBLIC\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 5. ACCÈS PROPRIÉTAIRE (FIX FOR UPSERTS)\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id) WITH CHECK (auth.uid() = profile_id);`)}
                     className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200 uppercase"
                   >
                     Réparer la Base de Données

@@ -49,11 +49,11 @@ export default function Home() {
           
           <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
             <div className="relative flex-grow max-w-sm">
-              <span className="absolute left-5 top-1/2 -translate-y-1/2 opacity-40 font-medium">women.cards/</span>
+              <span className="absolute left-5 top-1/2 -translate-y-1/2 opacity-40 font-medium">{window.location.host}/</span>
               <input 
                 type="text" 
-                placeholder="yourname"
-                className="w-full pl-[125px] pr-4 py-4 bg-white border border-black/5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#c5a059] transition-all shadow-sm"
+                placeholder="votre-nom"
+                className="w-full pl-[135px] pr-4 py-4 bg-white border border-black/5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#c5a059] transition-all shadow-sm"
               />
             </div>
             <button 

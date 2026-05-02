@@ -193,17 +193,26 @@ export default function Profile() {
           <a href="/" className="px-8 py-3 bg-black text-white rounded-full font-bold shadow-lg hover:scale-105 transition-transform">
             Créer ma propre carte
           </a>
-          {debugInfo.includes('DB Error') && (
+          {(debugInfo.includes('DB Error') || !profile) && (
             <div className="p-4 bg-red-50 border border-red-100 rounded-xl mt-4">
-              <p className="text-[10px] text-red-500 font-mono mb-2">ERREUR DE BASE DE DONNÉES DÉTECTÉE</p>
-              <p className="text-[10px] text-red-400 font-mono italic">Si vous êtes le propriétaire, retournez sur le Dashboard et cliquez sur "Réparer la Base de Données".</p>
+              <p className="text-[10px] text-red-500 font-mono mb-2">DIAGNOSTIC DU PROFIL</p>
+              <p className="text-[10px] text-red-400 font-mono block mb-2">
+                {debugInfo.includes('DB Error') ? 'Erreur de base de données détectée.' : 'Pseudo introuvable dans notre base de données.'}
+              </p>
+              <div className="text-[9px] text-red-400 font-mono space-y-1 text-left bg-white/50 p-2 rounded border border-red-100">
+                <p>Si vous êtes le propriétaire :</p>
+                <p>• Allez sur votre <a href="/dashboard" className="underline font-bold">Dashboard</a></p>
+                <p>• Vérifiez que votre Pseudo est bien : <strong>{username}</strong></p>
+                <p>• Cliquez sur "Save Changes"</p>
+                <p>• Si ça échoue, utilisez "Réparer la Base de Données"</p>
+              </div>
             </div>
           )}
         </div>
         
         {/* Transparent Debug Footer */}
         <div className="fixed bottom-4 left-0 right-0 opacity-20 hover:opacity-100 transition-opacity">
-           <p className="text-[8px] font-mono text-black">DEBUG: {debugInfo}</p>
+           <p className="text-[8px] font-mono text-black">URL Param: {username} | Debug: {debugInfo}</p>
         </div>
       </div>
     );
