@@ -1,7 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { UserProfile, THEMES, ThemeType } from '../types';
-import { Share2, ArrowUpRight, Loader2 } from 'lucide-react';
+import { Share2, ArrowUpRight, Loader2, Instagram, Linkedin, Mail, Phone, Twitter, Facebook, Youtube, Music } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -18,7 +18,9 @@ const DEFAULT_PROFILE: UserProfile = {
   ],
   socials: {
     instagram: '@sarahj_leads',
-    linkedin: 'sarahjenkins'
+    linkedin: 'sarahjenkins',
+    email: 'sarah@bloom.com',
+    phone: '+33 6 12 34 56 78'
   }
 };
 
@@ -260,6 +262,105 @@ export default function Profile() {
           <p className="opacity-70 text-base max-w-sm font-medium leading-relaxed">
             {profile.bio}
           </p>
+
+          {/* Contact & Social Icons */}
+          <div className="mt-8 space-y-6">
+            {/* Contact Line */}
+            {(profile.socials?.email || profile.socials?.phone) && (
+              <div className="flex justify-center gap-6">
+                {profile.socials?.email && (
+                  <a 
+                    href={`mailto:${profile.socials.email}`}
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="Email"
+                  >
+                    <Mail size={24} />
+                  </a>
+                )}
+                {profile.socials?.phone && (
+                  <a 
+                    href={`tel:${profile.socials.phone}`}
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="Phone"
+                  >
+                    <Phone size={24} />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {/* Social Media Line */}
+            {(profile.socials?.instagram || profile.socials?.linkedin || profile.socials?.twitter || profile.socials?.facebook || profile.socials?.tiktok || profile.socials?.youtube) && (
+              <div className="flex flex-wrap justify-center gap-6">
+                {profile.socials?.instagram && (
+                  <a 
+                    href={`https://instagram.com/${profile.socials.instagram.replace('@', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="Instagram"
+                  >
+                    <Instagram size={24} />
+                  </a>
+                )}
+                {profile.socials?.linkedin && (
+                  <a 
+                    href={`https://linkedin.com/in/${profile.socials.linkedin}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="LinkedIn"
+                  >
+                    <Linkedin size={24} />
+                  </a>
+                )}
+                {profile.socials?.twitter && (
+                  <a 
+                    href={`https://twitter.com/${profile.socials.twitter.replace('@', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="X (Twitter)"
+                  >
+                    <Twitter size={24} />
+                  </a>
+                )}
+                {profile.socials?.facebook && (
+                  <a 
+                    href={`https://facebook.com/${profile.socials.facebook}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="Facebook"
+                  >
+                    <Facebook size={24} />
+                  </a>
+                )}
+                {profile.socials?.tiktok && (
+                  <a 
+                    href={`https://tiktok.com/@${profile.socials.tiktok.replace('@', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="TikTok"
+                  >
+                    <Music size={24} />
+                  </a>
+                )}
+                {profile.socials?.youtube && (
+                  <a 
+                    href={`https://youtube.com/@${profile.socials.youtube.replace('@', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title="YouTube"
+                  >
+                    <Youtube size={24} />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         </motion.div>
 
         {/* Links List */}

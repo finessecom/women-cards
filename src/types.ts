@@ -18,6 +18,10 @@ export interface UserProfile {
     twitter?: string;
     linkedin?: string;
     youtube?: string;
+    facebook?: string;
+    tiktok?: string;
+    email?: string;
+    phone?: string;
   };
 }
 

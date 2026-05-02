@@ -14,7 +14,15 @@ import {
   Check,
   Save,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Instagram,
+  Linkedin,
+  Mail,
+  Phone,
+  Twitter,
+  Facebook,
+  Youtube,
+  Music
 } from 'lucide-react';
 import { UserProfile, Link, THEMES, ThemeType } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -33,7 +41,9 @@ const DEFAULT_PROFILE: UserProfile = {
   ],
   socials: {
     instagram: '@sarahj_leads',
-    linkedin: 'sarahjenkins'
+    linkedin: 'sarahjenkins',
+    email: 'sarah@bloom.com',
+    phone: '+33 6 12 34 56 78'
   }
 };
 
@@ -43,7 +53,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
-  const [activeTab, setActiveTab] = useState<'links' | 'appearance' | 'profile'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'contact' | 'appearance' | 'links'>('profile');
   const navigate = useNavigate();
 
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -241,9 +251,9 @@ export default function Dashboard() {
         profileError.message.includes("column") ||
         profileError.message.includes("schema cache")
       )) {
-        console.warn("Schema mismatch detected, retrying with minimal payload...", profileError.message);
+        console.warn("Schema mismatch detected, retrying with optimized payload...", profileError.message);
         
-        const minimalPayload: any = {
+        const retryPayload: any = {
           id: user.id,
           username: currentProfile.username.trim().toLowerCase(),
           bio: currentProfile.bio || '',
@@ -252,14 +262,22 @@ export default function Dashboard() {
           updated_at: new Date().toISOString()
         };
 
-        // Try primary name column
+        // Only include socials if they weren't explicitly called out as missing
+        if (!profileError.message.includes("'socials'")) {
+          retryPayload.socials = currentProfile.socials || {};
+        }
+
+        // Only include name if it isn't causing issues (compatibility check)
+        if (!profileError.message.includes("'full_name'")) {
+          retryPayload.full_name = currentProfile.name.trim();
+        }
         if (!profileError.message.includes("'name'")) {
-          minimalPayload.name = currentProfile.name.trim();
+          retryPayload.name = currentProfile.name.trim();
         }
 
         const { error: retryError } = await supabase
           .from('wc_profiles')
-          .upsert(minimalPayload, { onConflict: 'id' });
+          .upsert(retryPayload, { onConflict: 'id' });
         
         profileError = retryError;
       }
@@ -339,9 +357,9 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
       setSaveStatus({ type: 'success' });
       
       // Visual feedback: brief success alert
-      // Using a short timeout to let the UI update first
+      const publicUrl = `${window.location.origin}/${currentProfile.username.toLowerCase()}`;
       setTimeout(() => {
-        alert("✨ Félicitations ! Votre carte est maintenant en ligne.");
+        alert(`✨ Félicitations ! Votre carte est maintenant en ligne.\n\nLien : ${publicUrl}`);
       }, 100);
       
       // Keep success status for 5 seconds
@@ -429,9 +447,10 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
 
         <nav className="flex-grow space-y-2 px-3">
           {[
-            { id: 'profile', icon: <User size={20} />, label: 'Profile' },
-            { id: 'appearance', icon: <Palette size={20} />, label: 'Appearance' },
-            { id: 'links', icon: <LinkIcon size={20} />, label: 'Links' }
+            { id: 'profile', icon: <User size={20} />, label: '1. Profil' },
+            { id: 'contact', icon: <Layout size={20} />, label: '2. Contact & Réseaux' },
+            { id: 'appearance', icon: <Palette size={20} />, label: '3. Apparence' },
+            { id: 'links', icon: <LinkIcon size={20} />, label: '4. Links' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -558,27 +577,122 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                       className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl opacity-70 focus:ring-[#c5a059] shadow-sm resize-none"
                     />
                   </div>
+                </div>
+              </motion.div>
+            )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Instagram Username</label>
-                      <input 
-                        type="text" 
-                        value={profile.socials?.instagram || ''}
-                        onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, instagram: e.target.value } }))}
-                        className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
-                        placeholder="@username"
-                      />
+            {activeTab === 'contact' && (
+              <motion.div 
+                key="contact"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-10"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h1 className="text-3xl font-bold">Contact & Réseaux</h1>
+                  <button 
+                    onClick={() => saveToSupabase(profile)}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
+                  >
+                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+
+                <div className="space-y-10">
+                  {/* Section 1: Contact Direct */}
+                  <div className="bg-white p-8 rounded-3xl border border-black/5 shadow-sm space-y-6">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#c5a059]">Contact Direct</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Email de contact</label>
+                        <input 
+                          type="email" 
+                          value={profile.socials?.email || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, email: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="exemple@mail.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Téléphone</label>
+                        <input 
+                          type="tel" 
+                          value={profile.socials?.phone || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, phone: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="+33 6 00 00 00 00"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">LinkedIn Username</label>
-                      <input 
-                        type="text" 
-                        value={profile.socials?.linkedin || ''}
-                        onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, linkedin: e.target.value } }))}
-                        className="w-full bg-white border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
-                        placeholder="your-profile"
-                      />
+                  </div>
+
+                  {/* Section 2: Réseaux Sociaux */}
+                  <div className="bg-white p-8 rounded-3xl border border-black/5 shadow-sm space-y-6">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#c5a059]">Réseaux Sociaux</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Instagram</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.instagram || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, instagram: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="@username"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">LinkedIn</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.linkedin || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, linkedin: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="your-profile"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">X (Twitter)</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.twitter || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, twitter: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="@username"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">Facebook</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.facebook || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, facebook: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="votre.page"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">TikTok</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.tiktok || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, tiktok: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="@username"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-2">YouTube</label>
+                        <input 
+                          type="text" 
+                          value={profile.socials?.youtube || ''}
+                          onChange={(e) => setProfile(prev => ({ ...prev, socials: { ...prev.socials, youtube: e.target.value } }))}
+                          className="w-full bg-[#fcfcfb] border border-black/5 py-4 px-6 rounded-2xl font-bold focus:ring-[#c5a059] shadow-sm"
+                          placeholder="@chaine"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -730,6 +844,57 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                   {profile.bio}
                 </p>
 
+                {/* Preview Socials & Contact */}
+                <div className="space-y-4 mb-8">
+                  {/* Contact Line */}
+                  <div className="flex justify-center gap-4">
+                    {profile.socials?.email && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Mail size={16} />
+                      </div>
+                    )}
+                    {profile.socials?.phone && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Phone size={16} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Social Media Line */}
+                  <div className="flex flex-wrap justify-center gap-4">
+                    {profile.socials?.instagram && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Instagram size={20} />
+                      </div>
+                    )}
+                    {profile.socials?.linkedin && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Linkedin size={20} />
+                      </div>
+                    )}
+                    {profile.socials?.twitter && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Twitter size={20} />
+                      </div>
+                    )}
+                    {profile.socials?.facebook && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Facebook size={20} />
+                      </div>
+                    )}
+                    {profile.socials?.tiktok && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Music size={20} />
+                      </div>
+                    )}
+                    {profile.socials?.youtube && (
+                      <div className={`opacity-40 hover:opacity-100 transition-opacity ${currentTheme.text}`}>
+                        <Youtube size={20} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
 
                 <div className="w-full space-y-4">
                   {profile.links.filter(l => l.isActive).map(link => (
@@ -778,7 +943,7 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
                 {saveStatus.type === 'error' && (saveStatus.message?.includes('base de données') || saveStatus.message?.includes('RLS')) && (
                   <button 
-                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Ajouter les colonnes manquantes\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 3. ACCÈS PUBLIC (TRÈS IMPORTANT)\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 4. ACCÈS PROPRIÉTAIRE\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
+                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Réparer les colonnes (wc_profiles)\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Garantir l'unicité du pseudo\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 3. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 4. ACCÈS PUBLIC (POUR QUE LES GENS VOIENT VOTRE CARTE)\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 5. ACCÈS PROPRIÉTAIRE (POUR MODIFIER)\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
                     className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200 uppercase"
                   >
                     Réparer la Base de Données
