@@ -36,7 +36,8 @@ export default function Profile() {
   useEffect(() => {
     const fetchProfile = async () => {
       console.log("Profile: Fetching data for username:", username);
-      setDebugInfo(`Username: ${username} | `);
+      const cleanUsername = username?.trim().toLowerCase();
+      setDebugInfo(`Username: ${cleanUsername} | `);
       setError(null);
       
       // Local fallback logic
@@ -46,7 +47,7 @@ export default function Profile() {
         try {
           const p = JSON.parse(saved);
           console.log("Profile: Local storage found username:", p.username);
-          if (p.username === username || (username === 'sarah' && !p.username)) {
+          if (p.username?.toLowerCase() === cleanUsername || (cleanUsername === 'sarah' && !p.username)) {
             localProfile = p;
             console.log("Profile: Local storage matches current URL");
           }
@@ -55,9 +56,9 @@ export default function Profile() {
         }
       }
 
-      if (supabase && username) {
+      if (supabase && cleanUsername) {
         try {
-          const targetUsername = username.toLowerCase();
+          const targetUsername = cleanUsername;
           
           // Try to fetch with specific columns to avoid schema cache issues with '*'
           const { data: profileData, error: profileError } = await supabase
@@ -67,44 +68,47 @@ export default function Profile() {
             .maybeSingle();
 
           if (profileError) {
-            console.error("Profile: Supabase fetch error:", profileError);
-            setDebugInfo(prev => prev + `DB Error: ${profileError.message} | `);
-            
-            // If it's a column error, try a fallback fetch with safer columns
-            if (profileError.message.includes('column') || profileError.message.includes('socials') || profileError.message.includes('full_name')) {
-              console.warn("Profile: Schema mismatch detected, retrying with safe columns...");
-              const { data: retryData, error: retryError } = await supabase
-                .from('wc_profiles')
-                .select('id, username, bio, avatar_url, theme')
-                .eq('username', targetUsername)
-                .maybeSingle();
-              
-              if (!retryError && retryData) {
-                 // Success with retry!
-                 const { data: linksData } = await supabase
-                   .from('wc_links')
-                   .select('*')
-                   .eq('profile_id', retryData.id)
-                   .order('position', { ascending: true });
+             console.error("Profile: Supabase fetch error:", profileError);
+             setDebugInfo(prev => prev + `DB Error: ${profileError.code} - ${profileError.message} | `);
+             
+             // If it's a column error or permission error, try a fallback fetch with safer columns
+             if (profileError.message.includes('column') || profileError.message.includes('socials') || profileError.code === 'PGRST204' || profileError.code === '42501') {
+               console.warn("Profile: Schema mismatch or permission issue detected, retrying with safe columns...");
+               const { data: retryData, error: retryError } = await supabase
+                 .from('wc_profiles')
+                 .select('id, username, bio, avatar_url, theme')
+                 .eq('username', targetUsername)
+                 .maybeSingle();
+               
+               if (!retryError && retryData) {
+                  // Success with retry!
+                  setDebugInfo(prev => prev + "Loaded via Safe Retry | ");
+                  const { data: linksData } = await supabase
+                    .from('wc_links')
+                    .select('*')
+                    .eq('profile_id', retryData.id)
+                    .order('position', { ascending: true });
 
-                 setProfile({
-                   name: retryData.username || 'User',
-                   username: retryData.username || '',
-                   bio: retryData.bio || '',
-                   avatar: retryData.avatar_url || '',
-                   theme: retryData.theme || 'elegant-gold',
-                   links: (linksData || []).map((l: any) => ({
-                    id: l.id.toString(),
-                    title: l.title || '',
-                    url: l.url || '',
-                    isActive: l.is_active
-                   })),
-                   socials: {}
-                 });
-                 setIsLoading(false);
-                 return;
-              }
-            }
+                  setProfile({
+                    name: retryData.username || 'User',
+                    username: retryData.username || '',
+                    bio: retryData.bio || '',
+                    avatar: retryData.avatar_url || '',
+                    theme: retryData.theme || 'elegant-gold',
+                    links: (linksData || []).map((l: any) => ({
+                     id: l.id.toString(),
+                     title: l.title || '',
+                     url: l.url || '',
+                     isActive: l.is_active
+                    })),
+                    socials: {}
+                  });
+                  setIsLoading(false);
+                  return;
+               } else if (retryError) {
+                  setDebugInfo(prev => prev + `Retry failed: ${retryError.code} | `);
+               }
+             }
           }
 
           if (profileData) {

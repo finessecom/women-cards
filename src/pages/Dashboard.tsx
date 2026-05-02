@@ -477,8 +477,7 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
           </button>
         </div>
 
-        {/* User Status Tag */}
-        <div className="px-6 py-4 mt-2">
+        <div className="px-6 py-4 mt-2 space-y-4">
           <div className={`p-3 rounded-2xl border flex items-center gap-3 ${currentUser ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
             <div className={`w-2 h-2 rounded-full ${currentUser ? 'bg-green-500' : 'bg-orange-500'} animate-pulse`} />
             <div className="overflow-hidden">
@@ -488,6 +487,13 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
               </p>
             </div>
           </div>
+
+          <button 
+            onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE (https://supabase.com/dashboard/project/_/sql/new) :\n\n-- 1. CRÉATION DES TABLES\nCREATE TABLE IF NOT EXISTS wc_profiles (\n    id UUID PRIMARY KEY REFERENCES auth.users(id),\n    username TEXT UNIQUE,\n    full_name TEXT,\n    name TEXT,\n    bio TEXT,\n    avatar_url TEXT,\n    theme TEXT,\n    socials JSONB DEFAULT '{}'::jsonb,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\n\nCREATE TABLE IF NOT EXISTS wc_links (\n    id BIGSERIAL PRIMARY KEY,\n    profile_id UUID REFERENCES wc_profiles(id) ON DELETE CASCADE,\n    title TEXT,\n    url TEXT,\n    is_active BOOLEAN DEFAULT TRUE,\n    position INTEGER,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\n\n-- 2. RÉPARATION DES COLONNES SI DÉJÀ EXISTANTES\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 3. UNICITÉ DU PSEUDO\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 4. SÉCURITÉ (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 5. POLITIQUES D'ACCÈS (CRITICAL)\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id) WITH CHECK (auth.uid() = profile_id);`)}
+            className="w-full text-[10px] bg-red-600 text-white p-3 rounded-xl font-bold hover:bg-black transition-all uppercase text-center shadow-lg flex items-center justify-center gap-2"
+          >
+            <RefreshCw size={12} /> Réparer la Base de Données
+          </button>
         </div>
       </aside>
 
@@ -942,15 +948,8 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 <p className="text-[9px] font-mono text-black/40">Status: {currentUser ? 'Authenticated' : 'Not Logged In'}</p>
                 <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
                 
-                <button 
-                  onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE (https://supabase.com/dashboard/project/_/sql/new) :\n\n-- 1. Réparer les colonnes (wc_profiles)\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Garantir l'unicité du pseudo\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 3. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 4. ACCÈS PUBLIC\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 5. ACCÈS PROPRIÉTAIRE (FIX FOR UPSERTS)\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id) WITH CHECK (auth.uid() = profile_id);`)}
-                  className="mt-3 w-full text-[9px] bg-red-50 text-red-600 p-2 rounded-lg font-bold hover:bg-red-100 uppercase transition-colors text-center"
-                >
-                  Réparer la Base de Données
-                </button>
-
                 {lastSync && <p className="text-[9px] font-mono text-green-600 font-bold">Dernière Sync: {lastSync}</p>}
-                {saveStatus.type === 'error' && <p className="text-[9px] font-mono text-red-500">Erreur: {saveStatus.message?.slice(0, 50)}...</p>}
+                {saveStatus.type === 'error' && <p className="text-[9px] font-mono text-red-500 font-bold">⚠️ Erreur: {saveStatus.message}</p>}
               </div>
             </div>
           </div>
