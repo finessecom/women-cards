@@ -56,47 +56,86 @@ export default function Profile() {
       if (supabase && username) {
         try {
           const targetUsername = username.toLowerCase();
+          
+          // Try to fetch with specific columns to avoid schema cache issues with '*'
           const { data: profileData, error: profileError } = await supabase
             .from('wc_profiles')
-            .select('*')
+            .select('id, username, full_name, name, bio, avatar_url, theme, socials')
             .eq('username', targetUsername)
             .maybeSingle();
 
           if (profileError) {
-            console.error("Profile: Supabase error:", profileError);
+            console.error("Profile: Supabase fetch error:", profileError);
             setDebugInfo(prev => prev + `DB Error: ${profileError.message} | `);
+            
+            // If it's a column error, try a fallback fetch with safer columns
+            if (profileError.message.includes('column') || profileError.message.includes('socials') || profileError.message.includes('full_name')) {
+              console.warn("Profile: Schema mismatch detected, retrying with safe columns...");
+              const { data: retryData, error: retryError } = await supabase
+                .from('wc_profiles')
+                .select('id, username, bio, avatar_url, theme')
+                .eq('username', targetUsername)
+                .maybeSingle();
+              
+              if (!retryError && retryData) {
+                 // Success with retry!
+                 const { data: linksData } = await supabase
+                   .from('wc_links')
+                   .select('*')
+                   .eq('profile_id', retryData.id)
+                   .order('position', { ascending: true });
+
+                 setProfile({
+                   name: retryData.username || 'User',
+                   username: retryData.username || '',
+                   bio: retryData.bio || '',
+                   avatar: retryData.avatar_url || '',
+                   theme: retryData.theme || 'elegant-gold',
+                   links: (linksData || []).map((l: any) => ({
+                    id: l.id.toString(),
+                    title: l.title || '',
+                    url: l.url || '',
+                    isActive: l.is_active
+                   })),
+                   socials: {}
+                 });
+                 setIsLoading(false);
+                 return;
+              }
+            }
           }
 
           if (profileData) {
             console.log("Profile: Data found in DB:", profileData.id);
             setDebugInfo(prev => prev + "Loaded from DB | ");
-            const { data: linksData, error: linksError } = await supabase
+            
+            // We need the links too
+            const { data: linksData } = await supabase
               .from('wc_links')
               .select('*')
               .eq('profile_id', profileData.id)
               .order('position', { ascending: true });
+            
+            setProfile({
+              name: profileData.full_name || profileData.name || 'Anonymous',
+              username: profileData.username || '',
+              bio: profileData.bio || '',
+              avatar: profileData.avatar_url || '',
+              theme: profileData.theme || 'elegant-gold',
+              links: (linksData || []).map((l: any) => ({
+                id: l.id.toString(),
+                title: l.title || '',
+                url: l.url || '',
+                isActive: l.is_active
+              })),
+              socials: typeof profileData.socials === 'string' 
+                ? JSON.parse(profileData.socials) 
+                : (profileData.socials || {})
+            });
 
-            if (!linksError) {
-              setProfile({
-                name: profileData.full_name || profileData.name || 'Anonymous',
-                username: profileData.username || '',
-                bio: profileData.bio || '',
-                avatar: profileData.avatar_url || '',
-                theme: profileData.theme || 'elegant-gold',
-                links: (linksData || []).map((l: any) => ({
-                  id: l.id.toString(),
-                  title: l.title || '',
-                  url: l.url || '',
-                  isActive: l.is_active
-                })),
-                socials: typeof profileData.socials === 'string' 
-                  ? JSON.parse(profileData.socials) 
-                  : (profileData.socials || {})
-              });
-              setIsPreview(false);
-              setIsLoading(false);
-              return;
-            }
+            setIsPreview(false);
+            setIsLoading(false);
+            return;
           } else {
             console.warn("Profile: No record in DB for", targetUsername);
             setDebugInfo(prev => prev + "No DB record found | ");
@@ -107,7 +146,7 @@ export default function Profile() {
         }
       }
 
-      // Fallback
+      // Fallback logic
       if (localProfile) {
         console.log("Profile: Using Local Storage Fallback");
         setProfile(localProfile);

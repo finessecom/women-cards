@@ -218,32 +218,67 @@ export default function Dashboard() {
         id: user.id,
         username: currentProfile.username.trim().toLowerCase(),
         full_name: currentProfile.name.trim(),
+        name: currentProfile.name.trim(), // Send both for compatibility
         bio: currentProfile.bio || '',
         avatar_url: currentProfile.avatar || '',
         theme: currentProfile.theme || 'elegant-gold',
-        socials: currentProfile.socials || {},
         updated_at: new Date().toISOString()
       };
 
+      // Add socials only if it exists in schema (or we'll catch the error and retry)
+      profileToUpsert.socials = currentProfile.socials || {};
+
       console.log("Payload sent to Supabase (wc_profiles):", profileToUpsert);
 
-      const { error: profileError } = await supabase
+      let { error: profileError } = await supabase
         .from('wc_profiles')
         .upsert(profileToUpsert, { onConflict: 'id' });
+
+      // Robust schema mismatch handling
+      if (profileError && (
+        profileError.message.includes("'socials'") || 
+        profileError.message.includes("'full_name'") || 
+        profileError.message.includes("column") ||
+        profileError.message.includes("schema cache")
+      )) {
+        console.warn("Schema mismatch detected, retrying with minimal payload...", profileError.message);
+        
+        const minimalPayload: any = {
+          id: user.id,
+          username: currentProfile.username.trim().toLowerCase(),
+          bio: currentProfile.bio || '',
+          avatar_url: currentProfile.avatar || '',
+          theme: currentProfile.theme || 'elegant-gold',
+          updated_at: new Date().toISOString()
+        };
+
+        // Try primary name column
+        if (!profileError.message.includes("'name'")) {
+          minimalPayload.name = currentProfile.name.trim();
+        }
+
+        const { error: retryError } = await supabase
+          .from('wc_profiles')
+          .upsert(minimalPayload, { onConflict: 'id' });
+        
+        profileError = retryError;
+      }
 
       if (profileError) {
         console.error("SUPABASE PROFILE ERROR:", profileError.code, profileError.message);
         
-        // Detailed handling for common errors
-        if (profileError.code === '42501') {
+        // Detailed handling for RLS or Schema errors
+        if (profileError.code === '42501' || profileError.message.includes('permission') || profileError.message.includes('column')) {
           const sqlFix = `
--- COPIEZ CECI :
+-- COPIEZ CECI DANS LE SQL EDITOR DE SUPABASE :
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);
 ALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`;
-          console.error("CRITICAL: RLS Policy Missing. Run this in Supabase SQL Editor:", sqlFix);
-          throw new Error("Erreur RLS : L'accès en écriture est refusé par la base de données. Cliquez sur 'VOIR LE FIX SQL' en bas à gauche.");
+          console.error("CRITICAL: RLS Policy or Schema Missing. Run this in Supabase SQL Editor:", sqlFix);
+          throw new Error("Erreur de base de données : L'accès est refusé ou une colonne est manquante. Cliquez sur 'RÉPARER LA BASE DE DONNÉES' en bas à gauche.");
         }
         throw profileError;
       }
@@ -726,12 +761,12 @@ CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.ui
                 <p className="text-[9px] font-mono text-black/40 truncate" title={currentUser?.email || ''}>Email: {currentUser?.email || 'N/A'}</p>
                 <p className="text-[9px] font-mono text-black/40">Status: {currentUser ? 'Authenticated' : 'Not Logged In'}</p>
                 <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
-                {saveStatus.type === 'error' && saveStatus.message?.includes('RLS') && (
+                {saveStatus.type === 'error' && (saveStatus.message?.includes('base de données') || saveStatus.message?.includes('RLS')) && (
                   <button 
-                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
-                    className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200"
+                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Ajouter les colonnes manquantes\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\n\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
+                    className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200 uppercase"
                   >
-                    VOIR LE FIX SQL
+                    Réparer la Base de Données
                   </button>
                 )}
                 {lastSync && <p className="text-[9px] font-mono text-green-600 font-bold">Dernière Sync: {lastSync}</p>}
