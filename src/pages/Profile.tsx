@@ -185,11 +185,24 @@ export default function Profile() {
         </div>
         <h1 className="text-2xl font-bold mb-2">Profil non trouvé</h1>
         <p className="text-black/40 max-w-xs mb-8">
-          La carte pour "@ {username}" n'existe pas encore ou n'a pas été publiée.
+          La carte pour "@ {username}" n'existe pas encore ou n'a pas été publiée sur cette plateforme.
         </p>
-        <a href="/" className="px-8 py-3 bg-black text-white rounded-full font-bold shadow-lg hover:scale-105 transition-transform">
-          Créer ma propre carte
-        </a>
+        <div className="flex flex-col gap-3">
+          <a href="/" className="px-8 py-3 bg-black text-white rounded-full font-bold shadow-lg hover:scale-105 transition-transform">
+            Créer ma propre carte
+          </a>
+          {debugInfo.includes('DB Error') && (
+            <div className="p-4 bg-red-50 border border-red-100 rounded-xl mt-4">
+              <p className="text-[10px] text-red-500 font-mono mb-2">ERREUR DE BASE DE DONNÉES DÉTECTÉE</p>
+              <p className="text-[10px] text-red-400 font-mono italic">Si vous êtes le propriétaire, retournez sur le Dashboard et cliquez sur "Réparer la Base de Données".</p>
+            </div>
+          )}
+        </div>
+        
+        {/* Transparent Debug Footer */}
+        <div className="fixed bottom-4 left-0 right-0 opacity-20 hover:opacity-100 transition-opacity">
+           <p className="text-[8px] font-mono text-black">DEBUG: {debugInfo}</p>
+        </div>
       </div>
     );
   }

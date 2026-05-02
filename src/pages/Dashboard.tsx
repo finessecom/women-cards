@@ -271,12 +271,27 @@ export default function Dashboard() {
         if (profileError.code === '42501' || profileError.message.includes('permission') || profileError.message.includes('column')) {
           const sqlFix = `
 -- COPIEZ CECI DANS LE SQL EDITOR DE SUPABASE :
+
+-- 1. Réparer les colonnes
 ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;
+
+-- 2. Activer RLS
 ALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);
 ALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`;
+
+-- 3. Supprimer les anciennes politiques (nettoyage)
+DROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;
+DROP POLICY IF EXISTS "Allow individual links access" ON wc_links;
+DROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;
+
+-- 4. Créer les nouvelles politiques
+CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);
+CREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);
+CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);
+CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);
+`;
           console.error("CRITICAL: RLS Policy or Schema Missing. Run this in Supabase SQL Editor:", sqlFix);
           throw new Error("Erreur de base de données : L'accès est refusé ou une colonne est manquante. Cliquez sur 'RÉPARER LA BASE DE DONNÉES' en bas à gauche.");
         }
@@ -763,7 +778,7 @@ CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.ui
                 <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
                 {saveStatus.type === 'error' && (saveStatus.message?.includes('base de données') || saveStatus.message?.includes('RLS')) && (
                   <button 
-                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Ajouter les colonnes manquantes\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\n\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
+                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\n-- 1. Ajouter les colonnes manquantes\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 2. Activer la sécurité (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 3. ACCÈS PUBLIC (TRÈS IMPORTANT)\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\n-- 4. ACCÈS PROPRIÉTAIRE\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
                     className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200 uppercase"
                   >
                     Réparer la Base de Données
