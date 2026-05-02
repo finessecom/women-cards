@@ -24,30 +24,52 @@ const DEFAULT_PROFILE: UserProfile = {
 
 export default function Profile() {
   const { username } = useParams();
-  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
+  const [isPreview, setIsPreview] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
+
   useEffect(() => {
     const fetchProfile = async () => {
+      console.log("Profile: Fetching data for username:", username);
+      setDebugInfo(`Username: ${username} | `);
+      setError(null);
+      
       // Local fallback logic
       const saved = localStorage.getItem('womenCardsProfile');
       let localProfile: UserProfile | null = null;
       if (saved) {
-        const p = JSON.parse(saved);
-        if (p.username === username || username === 'sarah') {
-          localProfile = p;
+        try {
+          const p = JSON.parse(saved);
+          console.log("Profile: Local storage found username:", p.username);
+          if (p.username === username || (username === 'sarah' && !p.username)) {
+            localProfile = p;
+            console.log("Profile: Local storage matches current URL");
+          }
+        } catch(e) {
+          console.error("Profile: Error parsing local storage", e);
         }
       }
 
       if (supabase && username) {
         try {
+          const targetUsername = username.toLowerCase();
           const { data: profileData, error: profileError } = await supabase
             .from('wc_profiles')
             .select('*')
-            .eq('username', username)
+            .eq('username', targetUsername)
             .maybeSingle();
 
-          if (profileData && !profileError) {
+          if (profileError) {
+            console.error("Profile: Supabase error:", profileError);
+            setDebugInfo(prev => prev + `DB Error: ${profileError.message} | `);
+          }
+
+          if (profileData) {
+            console.log("Profile: Data found in DB:", profileData.id);
+            setDebugInfo(prev => prev + "Loaded from DB | ");
             const { data: linksData, error: linksError } = await supabase
               .from('wc_links')
               .select('*')
@@ -56,7 +78,7 @@ export default function Profile() {
 
             if (!linksError) {
               setProfile({
-                name: profileData.name || '',
+                name: profileData.full_name || profileData.name || 'Anonymous',
                 username: profileData.username || '',
                 bio: profileData.bio || '',
                 avatar: profileData.avatar_url || '',
@@ -67,22 +89,37 @@ export default function Profile() {
                   url: l.url || '',
                   isActive: l.is_active
                 })),
-                socials: profileData.socials || {}
+                socials: typeof profileData.socials === 'string' 
+                  ? JSON.parse(profileData.socials) 
+                  : (profileData.socials || {})
               });
+              setIsPreview(false);
               setIsLoading(false);
               return;
             }
+          } else {
+            console.warn("Profile: No record in DB for", targetUsername);
+            setDebugInfo(prev => prev + "No DB record found | ");
           }
-        } catch (err) {
-          console.error("Supabase profile fetch error:", err);
+        } catch (err: any) {
+          console.error("Profile: Critical fetch error:", err);
+          setError(err.message);
         }
       }
 
-      // If we got here, use local or default
+      // Fallback
       if (localProfile) {
+        console.log("Profile: Using Local Storage Fallback");
         setProfile(localProfile);
-      } else if (username !== 'sarah') {
-        // Handle not found?
+        setIsPreview(true);
+        setDebugInfo(prev => prev + "Found in LocalStorage");
+      } else if (username === 'sarah') {
+        console.log("Profile: Using Default Sarah Profile");
+        setProfile(DEFAULT_PROFILE);
+        setDebugInfo(prev => prev + "Using defaults");
+      } else {
+        console.log("Profile: Truly NOT FOUND");
+        setProfile(null);
       }
       setIsLoading(false);
     };
@@ -90,21 +127,60 @@ export default function Profile() {
     fetchProfile();
   }, [username]);
 
-  const themeConfig = THEMES[profile.theme as ThemeType] || THEMES['elegant-gold'];
-
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#faf9f6]">
-        <Loader2 className="animate-spin text-[#c5a059]" size={40} />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="animate-spin text-[#c5a059]" size={40} />
+          <p className="text-sm font-medium text-black/40 uppercase tracking-widest">Recherche de la carte...</p>
+        </div>
       </div>
     );
   }
 
+  if (!profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#faf9f6] p-6 text-center">
+        <div className="w-20 h-20 bg-black/5 rounded-full flex items-center justify-center mb-6">
+          <Share2 className="text-black/20" size={32} />
+        </div>
+        <h1 className="text-2xl font-bold mb-2">Profil non trouvé</h1>
+        <p className="text-black/40 max-w-xs mb-8">
+          La carte pour "@ {username}" n'existe pas encore ou n'a pas été publiée.
+        </p>
+        <a href="/" className="px-8 py-3 bg-black text-white rounded-full font-bold shadow-lg hover:scale-105 transition-transform">
+          Créer ma propre carte
+        </a>
+      </div>
+    );
+  }
+
+  const themeConfig = THEMES[profile.theme as ThemeType] || THEMES['elegant-gold'];
+
   return (
-    <div className={`min-h-screen ${themeConfig.bg} ${themeConfig.text} font-sans selection:bg-[#c5a059] selection:text-white pb-20`}>
+    <div className={`min-h-screen ${themeConfig.bg} ${themeConfig.text} font-sans selection:bg-[#c5a059] selection:text-white pb-20 relative`}>
+      {/* Dynamic Status / Debug Tooltip */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md text-[9px] font-mono p-1 text-white/40 text-center flex items-center justify-center gap-4">
+        <span>{debugInfo}</span>
+        {error && <span className="text-red-400">Error: {error}</span>}
+      </div>
+
+      {isPreview && (
+        <div className="bg-orange-500 text-white py-2 px-4 text-center text-xs font-bold uppercase tracking-widest sticky top-0 z-40 shadow-lg">
+          Attention : Ceci est un aperçu (données locales). Vos modifications n'ont pas encore été synchronisées avec la base de données.
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="max-w-xl mx-auto flex justify-end px-6 pt-6">
-        <button className="p-3 bg-white/10 backdrop-blur-md rounded-full shadow-lg hover:bg-white/20 transition-all border border-white/10">
+        <button 
+          onClick={() => {
+            const url = window.location.href;
+            navigator.clipboard.writeText(url);
+            alert("Lien copié !");
+          }}
+          className="p-3 bg-white/10 backdrop-blur-md rounded-full shadow-lg hover:bg-white/20 transition-all border border-white/10"
+        >
           <Share2 size={20} />
         </button>
       </div>

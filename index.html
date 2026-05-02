@@ -7,39 +7,51 @@
     <script>
       (function() {
         if (typeof window !== 'undefined') {
-          // Define 'global' and 'globalThis' as Proxies to window to catch attempts to overwrite read-only properties like 'fetch'
-          var proxyHandler = {
-            get: function(t, p) {
-              if (p === 'global' || p === 'globalThis') return window.global;
-              var v = t[p];
-              // Bind native functions to window to avoid "Illegal invocation"
-              if (typeof v === 'function' && v.toString().includes('[native code]')) {
-                return v.bind(t);
-              }
-              return v;
-            },
-            set: function(t, p, v) {
-              // Absorb attempts to overwrite read-onlys via global.fetch or globalThis.fetch
-              if (p === 'fetch') return true;
-              try {
-                // Check if the property is writable on the actual window object
-                var descriptor = Object.getOwnPropertyDescriptor(t, p);
-                if (descriptor && !descriptor.writable && !descriptor.set) {
-                  return true; // Silent success
-                }
-                t[p] = v;
-              } catch(e) {}
-              return true;
-            }
-          };
+          // Polyfill 'global' and 'globalThis'
+          window.global = window;
+          if (!window.globalThis) {
+            window.globalThis = window;
+          }
 
+          // Some libraries try to polyfill fetch and crash if it's read-only
           try {
+            var _realFetch = window.fetch;
+            var _currentFetch = _realFetch;
+            
+            // Define a proxy for global objects to intercept fetch assignment
+            var proxyHandler = {
+              get: function(target, prop) {
+                if (prop === 'fetch') return _currentFetch;
+                var value = target[prop];
+                if (typeof value === 'function') return value.bind(target);
+                return value;
+              },
+              set: function(target, prop, value) {
+                if (prop === 'fetch') {
+                  _currentFetch = value;
+                  return true;
+                }
+                try {
+                  target[prop] = value;
+                } catch (e) {
+                  // Ignore read-only errors on global
+                }
+                return true;
+              }
+            };
+
             window.global = new Proxy(window, proxyHandler);
-            if (!window.globalThis) {
-              window.globalThis = window.global;
-            }
+            window.globalThis = window.global;
+
+            // Also try to redefine on window itself to catch direct window.fetch = ...
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return _currentFetch; },
+              set: function(v) { _currentFetch = v; },
+              configurable: true,
+              enumerable: true
+            });
           } catch (e) {
-            window.global = window;
+            console.warn("Could not fully polyfill fetch setter, some libraries might crash", e);
           }
         }
       })();

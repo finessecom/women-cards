@@ -13,7 +13,8 @@ import {
   Palette,
   Check,
   Save,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { UserProfile, Link, THEMES, ThemeType } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -41,10 +42,12 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
   const [activeTab, setActiveTab] = useState<'links' | 'appearance' | 'profile'>('profile');
   const navigate = useNavigate();
 
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   // Initial load
   useEffect(() => {
@@ -100,11 +103,30 @@ export default function Dashboard() {
                     url: l.url || '',
                     isActive: l.is_active
                   })),
-                  socials: profileData.socials || {}
+                  socials: typeof profileData.socials === 'string' 
+                    ? JSON.parse(profileData.socials) 
+                    : (profileData.socials || {})
                 };
                 setProfile(fetchedProfile);
                 localStorage.setItem('womenCardsProfile', JSON.stringify(fetchedProfile));
-                console.log("Dashboard: profile state updated");
+                console.log("Dashboard: profile state updated from DB successfully");
+              }
+            } else if (mounted) {
+              console.log("Dashboard: no profile in DB, initializing new user session");
+              const saved = localStorage.getItem('womenCardsProfile');
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                // If it's not the default Jenkins name, it might be their local unsaved work
+                if (parsed.name !== DEFAULT_PROFILE.name) {
+                  setProfile(parsed);
+                  console.log("Dashboard: restored profile from local storage");
+                }
+              } else {
+                // For a completely new user, generate a unique username suggestion
+                if (user.email) {
+                  const suggestedUsername = user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+                  setProfile(prev => ({ ...prev, username: suggestedUsername }));
+                }
               }
             }
           }
@@ -165,70 +187,86 @@ export default function Dashboard() {
     }
 
     setIsSaving(true);
-    console.log("Starting save process for profile:", currentProfile);
+    setSaveStatus({ type: 'idle' });
+    console.log("--- SAVE PROCESS START ---");
+    console.log("User Profile to save:", currentProfile);
 
     try {
-      // Use getSession for a faster check first
+      // Small delay to ensure UI updates
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const { data: { session } } = await supabase.auth.getSession();
       let user = session?.user;
 
       if (!user) {
-        // Fallback to getUser which is more thorough
         const { data: { user: fetchUser } } = await supabase.auth.getUser();
         user = fetchUser;
       }
 
       if (!user) {
-         console.error("Save failed: No active user session found.");
-         alert("Session expirée ou utilisateur non trouvé. Veuillez vous reconnecter.");
-         localStorage.setItem('womenCardsProfile', JSON.stringify(currentProfile));
+         setSaveStatus({ type: 'error', message: 'Session expirée' });
+         console.error("SAVE ABORTED: No user found");
+         alert("Session expirée. Veuillez vous reconnecter.");
          navigate('/login');
          return;
       }
 
-      console.log("Saving for user ID:", user.id);
+      console.log("Saving for UID:", user.id);
 
-      // 1. Upsert profile
+      // 1. Prepare profile data
       const profileToUpsert: any = {
         id: user.id,
-        username: currentProfile.username.trim(),
+        username: currentProfile.username.trim().toLowerCase(),
         full_name: currentProfile.name.trim(),
-        bio: currentProfile.bio,
-        avatar_url: currentProfile.avatar,
-        theme: currentProfile.theme,
+        bio: currentProfile.bio || '',
+        avatar_url: currentProfile.avatar || '',
+        theme: currentProfile.theme || 'elegant-gold',
         socials: currentProfile.socials || {},
         updated_at: new Date().toISOString()
       };
+
+      console.log("Payload sent to Supabase (wc_profiles):", profileToUpsert);
 
       const { error: profileError } = await supabase
         .from('wc_profiles')
         .upsert(profileToUpsert, { onConflict: 'id' });
 
       if (profileError) {
-        console.error("Profile Database Error:", profileError);
-        if (profileError.code === '23505') {
-          throw new Error("Ce nom d'utilisateur est déjà pris. Veuillez en choisir un autre.");
+        console.error("SUPABASE PROFILE ERROR:", profileError.code, profileError.message);
+        
+        // Detailed handling for common errors
+        if (profileError.code === '42501') {
+          const sqlFix = `
+-- COPIEZ CECI :
+ALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);
+ALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`;
+          console.error("CRITICAL: RLS Policy Missing. Run this in Supabase SQL Editor:", sqlFix);
+          throw new Error("Erreur RLS : L'accès en écriture est refusé par la base de données. Cliquez sur 'VOIR LE FIX SQL' en bas à gauche.");
         }
-        throw new Error(`Erreur Profil (Table wc_profiles) : ${profileError.message} (Code: ${profileError.code})`);
+        throw profileError;
       }
 
+      console.log("✓ Profile record saved successfully");
+
       // 2. Sync links
-      console.log("Syncing links...", currentProfile.links.length);
+      console.log("Syncing links...", currentProfile.links.length, "links to save");
+      
       const { error: deleteError } = await supabase
         .from('wc_links')
         .delete()
         .eq('profile_id', user.id);
 
       if (deleteError) {
-        console.error("Links Sync Delete Error:", deleteError);
-        throw new Error(`Erreur synchronisation Liens (Suppression) : ${deleteError.message}`);
+        console.warn("Links Delete Warning:", deleteError);
       }
 
       if (currentProfile.links.length > 0) {
         const linksToInsert = currentProfile.links.map((link, index) => ({
           profile_id: user.id,
-          title: link.title.trim(),
-          url: link.url.trim(),
+          title: link.title.trim() || 'Lien',
+          url: (link.url.trim().startsWith('http') ? link.url.trim() : `https://${link.url.trim()}`),
           is_active: link.isActive,
           position: index
         }));
@@ -238,34 +276,34 @@ export default function Dashboard() {
           .insert(linksToInsert);
 
         if (insertError) {
-          console.error("Links Sync Insert Error:", insertError);
-          throw new Error(`Erreur synchronisation Liens (Insertion) : ${insertError.message}`);
+          console.error("LINKS INSERT ERROR:", insertError);
+          throw new Error(`Erreur Liens: ${insertError.message}`);
         }
       }
 
+      console.log("✓ Links synced successfully");
+      console.log("--- SAVE PROCESS COMPLETE ---");
+      
       localStorage.setItem('womenCardsProfile', JSON.stringify(currentProfile));
+      setLastSync(new Date().toLocaleTimeString());
+      setSaveStatus({ type: 'success' });
       
-      // Verify the save worked
-      const { data: verify, error: verifyErr } = await supabase
-        .from('wc_profiles')
-        .select('updated_at')
-        .eq('id', user.id)
-        .maybeSingle();
+      // Visual feedback: brief success alert
+      // Using a short timeout to let the UI update first
+      setTimeout(() => {
+        alert("✨ Félicitations ! Votre carte est maintenant en ligne.");
+      }, 100);
       
-      if (verifyErr || !verify) {
-        console.warn("Verify Save Warning:", verifyErr || "Profile not found after save");
-      } else {
-        console.log("Save verified at:", verify.updated_at);
-      }
-
-      alert('Changements enregistrés avec succès dans Supabase !');
+      // Keep success status for 5 seconds
+      setTimeout(() => setSaveStatus({ type: 'idle' }), 5000);
     } catch (err: any) {
-      console.error("Critical Save Failure:", err);
+      console.error("--- SAVE CRITICAL ERROR ---", err);
+      setSaveStatus({ type: 'error', message: err.message });
       alert(`Erreur d'enregistrement : ${err.message || 'Problème de connexion'}`);
     } finally {
       setIsSaving(false);
     }
-  }, [navigate]);
+  }, [supabase, navigate, currentUser]);
 
   // Sync profile to local storage on every change
   useEffect(() => {
@@ -398,14 +436,20 @@ export default function Dashboard() {
               >
                 <div className="flex items-center justify-between mb-8">
                   <h1 className="text-3xl font-bold">Profile Details</h1>
-                  <button 
-                    onClick={() => saveToSupabase(profile)}
-                    disabled={isSaving}
-                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
-                  >
-                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                    {isSaving ? 'Saving...' : 'Save Changes'}
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {saveStatus.type === 'success' && <span className="text-xs font-bold text-green-500 uppercase tracking-widest animate-pulse">Saved Successfully!</span>}
+                    {saveStatus.type === 'error' && <span className="text-xs font-bold text-red-500 uppercase tracking-widest">Error Saving</span>}
+                    <button 
+                      onClick={() => saveToSupabase(profile)}
+                      disabled={isSaving}
+                      className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold shadow-lg transition-all ${
+                        isSaving ? 'bg-stone-400' : 'bg-black text-white hover:bg-stone-800'
+                      } disabled:opacity-50`}
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-8 bg-white p-8 rounded-3xl border border-black/5 shadow-sm">
@@ -657,14 +701,43 @@ export default function Dashboard() {
             </div>
           </div>
           
-          <div className="mt-8 flex gap-4">
-             <a 
+          <div className="mt-8 flex flex-col gap-4 w-full">
+            <a 
               href={`/${profile.username}`} 
               target="_blank" 
-              className="px-6 py-2 bg-white border border-black/10 rounded-full font-bold text-sm flex items-center gap-2 hover:bg-black hover:text-white transition-all shadow-md group"
+              rel="noreferrer"
+              className="px-6 py-3 bg-white border border-black/10 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-black hover:text-white transition-all shadow-md group w-full"
             >
               View live page <ExternalLink size={14} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
             </a>
+
+            <div className="bg-black/5 rounded-2xl p-4 w-full">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-black/30">Diagnostic Système</h3>
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="text-[10px] font-bold text-[#c5a059] hover:underline flex items-center gap-1"
+                >
+                  <RefreshCw size={10} /> Sync
+                </button>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[9px] font-mono text-black/40 truncate" title={currentUser?.id}>UID: {currentUser?.id || 'NO_USER'}</p>
+                <p className="text-[9px] font-mono text-black/40 truncate" title={currentUser?.email || ''}>Email: {currentUser?.email || 'N/A'}</p>
+                <p className="text-[9px] font-mono text-black/40">Status: {currentUser ? 'Authenticated' : 'Not Logged In'}</p>
+                <p className="text-[9px] font-mono text-black/40">DB: {supabase ? 'Connected' : 'Offline'}</p>
+                {saveStatus.type === 'error' && saveStatus.message?.includes('RLS') && (
+                  <button 
+                    onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE :\n\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);`)}
+                    className="mt-2 text-[8px] bg-red-100 text-red-600 p-1 rounded font-bold hover:bg-red-200"
+                  >
+                    VOIR LE FIX SQL
+                  </button>
+                )}
+                {lastSync && <p className="text-[9px] font-mono text-green-600 font-bold">Dernière Sync: {lastSync}</p>}
+                {saveStatus.type === 'error' && <p className="text-[9px] font-mono text-red-500">Erreur: {saveStatus.message?.slice(0, 50)}...</p>}
+              </div>
+            </div>
           </div>
         </div>
       </main>
