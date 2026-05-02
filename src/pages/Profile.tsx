@@ -194,7 +194,7 @@ export default function Profile() {
         >
           <div className="relative mb-6">
             <img 
-              src={profile.avatar} 
+              src={profile.avatar || undefined} 
               alt={profile.name} 
               className="w-28 h-28 rounded-full object-cover shadow-2xl ring-4 ring-black/5"
             />

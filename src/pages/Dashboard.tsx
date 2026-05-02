@@ -455,7 +455,7 @@ CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.ui
                 <div className="flex items-center gap-8 bg-white p-8 rounded-3xl border border-black/5 shadow-sm">
                   <div className="relative group">
                     <img 
-                      src={profile.avatar} 
+                      src={profile.avatar || undefined} 
                       alt="Avatar" 
                       className="w-24 h-24 rounded-full object-cover shadow-lg group-hover:opacity-80 transition-opacity"
                     />
@@ -669,7 +669,7 @@ CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.ui
             <div className={`w-[320px] h-[640px] rounded-[2rem] overflow-y-auto no-scrollbar relative z-10 transition-colors duration-500 ${currentTheme.bg}`}>
               <div className="p-8 pt-16 flex flex-col items-center">
                 <img 
-                  src={profile.avatar} 
+                  src={profile.avatar || undefined} 
                   alt="Preview Avatar" 
                   className="w-24 h-24 rounded-full object-cover shadow-xl mb-6 ring-4 ring-white/10"
                 />
