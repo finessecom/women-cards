@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowRight, CheckCircle2, Layout, Zap, Smartphone } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Layout, Smartphone } from 'lucide-react';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -10,11 +10,7 @@ export default function Home() {
       {/* Navigation */}
       <nav className="flex items-center justify-between px-6 py-6 md:px-12">
         <div className="text-2xl font-bold tracking-tight">women.cards</div>
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium opacity-70">
-          <a href="#" className="hover:opacity-100 transition-opacity">Templates</a>
-          <a href="#" className="hover:opacity-100 transition-opacity">Discover</a>
-          <a href="#" className="hover:opacity-100 transition-opacity">Pricing</a>
-        </div>
+
         <div className="flex items-center gap-4">
           <button 
             onClick={() => navigate('/login')}
@@ -100,27 +96,6 @@ export default function Home() {
         </motion.div>
       </main>
 
-      {/* Feature Section */}
-      <section className="bg-white py-24">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h2 className="text-4xl font-bold mb-16">Designed for impact.</h2>
-          <div className="grid md:grid-cols-3 gap-12">
-            {[
-              { icon: <Zap />, title: "Instant Setup", desc: "Your link is live in seconds. Manage everything from your phone or desktop." },
-              { icon: <Layout />, title: "Premium Templates", desc: "Choose from minimalist designs crafted specifically for female professionals." },
-              { icon: <CheckCircle2 />, title: "Advanced Analytics", desc: "Know who's visiting and what they're clicking with ease." }
-            ].map((feature, i) => (
-              <div key={i} className="flex flex-col items-center">
-                <div className="w-12 h-12 bg-[#faf9f6] rounded-xl flex items-center justify-center text-[#c5a059] mb-6 shadow-inner">
-                  {feature.icon}
-                </div>
-                <h3 className="text-lg font-bold mb-2">{feature.title}</h3>
-                <p className="text-black/50 text-sm leading-relaxed">{feature.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

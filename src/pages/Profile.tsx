@@ -67,6 +67,8 @@ export default function Profile() {
             .eq('username', targetUsername)
             .maybeSingle();
 
+          console.log("Profile: Supabase Result for", targetUsername, { profileData, profileError });
+
           if (profileError) {
              console.error("Profile: Supabase fetch error:", profileError);
              setDebugInfo(prev => prev + `DB Error: ${profileError.code} - ${profileError.message} | `);
@@ -106,7 +108,11 @@ export default function Profile() {
                   setIsLoading(false);
                   return;
                } else if (retryError) {
+                  console.error("Profile: Retry failed:", retryError);
                   setDebugInfo(prev => prev + `Retry failed: ${retryError.code} | `);
+               } else {
+                  console.warn("Profile: Retry returned no data");
+                  setDebugInfo(prev => prev + "Retry: Empty | ");
                }
              }
           }

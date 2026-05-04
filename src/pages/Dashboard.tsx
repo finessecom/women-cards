@@ -59,6 +59,9 @@ export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
+  const [showSqlRepair, setShowSqlRepair] = useState(false);
+  const [dbDiagnostic, setDbDiagnostic] = useState<string | null>(null);
+
   // Initial load
   useEffect(() => {
     let mounted = true;
@@ -67,6 +70,7 @@ export default function Dashboard() {
     const loadData = async () => {
       if (!mounted) return;
       setIsLoading(true);
+      setDbDiagnostic(null);
       
       try {
         if (supabase) {
@@ -74,7 +78,10 @@ export default function Dashboard() {
           const { data, error: userError } = await supabase.auth.getUser();
           const user = data?.user;
           
-          if (userError) console.error("Dashboard: getUser error:", userError);
+          if (userError) {
+            console.error("Dashboard: getUser error:", userError);
+            setDbDiagnostic(`Auth Error: ${userError.message}`);
+          }
           
           if (mounted) {
             setCurrentUser(user);
@@ -285,35 +292,14 @@ export default function Dashboard() {
       if (profileError) {
         console.error("SUPABASE PROFILE ERROR:", profileError.code, profileError.message);
         
-        // Detailed handling for RLS or Schema errors
-        if (profileError.code === '42501' || profileError.message.includes('permission') || profileError.message.includes('column')) {
-          const sqlFix = `
--- COPIEZ CECI DANS LE SQL EDITOR DE SUPABASE :
+        let customMessage = profileError.message;
+        if (profileError.code === '42501') customMessage = "Erreur de Permission (RLS). Assurez-vous d'avoir exécuté le script SQL dans Supabase.";
+        if (profileError.code === '23505') customMessage = "Ce pseudo est déjà utilisé par un autre utilisateur.";
+        if (profileError.message.includes('column')) customMessage = "La structure de la base est incomplète. Utilisez le code SQL de réparation.";
 
--- 1. Réparer les colonnes
-ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
-ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;
-
--- 2. Activer RLS
-ALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;
-
--- 3. Supprimer les anciennes politiques (nettoyage)
-DROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;
-DROP POLICY IF EXISTS "Allow individual links access" ON wc_links;
-DROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;
-
--- 4. Créer les nouvelles politiques
-CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id);
-CREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);
-CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id);
-CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);
-`;
-          console.error("CRITICAL: RLS Policy or Schema Missing. Run this in Supabase SQL Editor:", sqlFix);
-          throw new Error("Erreur de base de données : L'accès est refusé ou une colonne est manquante. Cliquez sur 'RÉPARER LA BASE DE DONNÉES' en bas à gauche.");
-        }
-        throw profileError;
+        setSaveStatus({ type: 'error', message: customMessage });
+        setDbDiagnostic(`Save Error: ${profileError.code} - ${profileError.message}`);
+        return;
       }
 
       console.log("✓ Profile record saved successfully");
@@ -359,7 +345,7 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
       // Visual feedback: brief success alert
       const publicUrl = `${window.location.origin}/${currentProfile.username.toLowerCase()}`;
       setTimeout(() => {
-        alert(`✨ Félicitations ! Votre carte est maintenant en ligne.\n\nLien : ${publicUrl}`);
+        alert(`✅ PROFIL ENREGISTRÉ AVEC SUCCÈS !\n\nVotre page est maintenant active à cette adresse :\n${publicUrl}\n\n(Note : Si vous voyez encore 'Profil non trouvé', attendez 5 secondes et rafraîchissez la page)`);
       }, 100);
       
       // Keep success status for 5 seconds
@@ -437,25 +423,25 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
   }
 
   return (
-    <div className="flex h-screen bg-[#fcfcfb] font-sans overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen bg-[#fcfcfb] font-sans overflow-hidden">
       {/* Sidebar navigation */}
-      <aside className="w-20 md:w-64 border-r border-black/5 bg-white flex flex-col items-center md:items-stretch py-8">
-        <div className="px-6 mb-12 flex items-center gap-3">
+      <aside className="fixed bottom-0 left-0 right-0 h-16 md:relative md:h-screen md:w-64 border-t md:border-t-0 md:border-r border-black/5 bg-white flex flex-row md:flex-col items-center md:items-stretch px-2 md:px-0 py-0 md:py-8 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] md:shadow-none">
+        <div className="hidden md:flex px-6 mb-12 items-center gap-3">
           <div className="w-8 h-8 md:w-10 md:h-10 bg-[#c5a059] rounded-lg rotate-12 flex items-center justify-center text-white font-bold text-xl">w</div>
           <span className="hidden md:block font-bold text-lg tracking-tight">women.cards</span>
         </div>
 
-        <nav className="flex-grow space-y-2 px-3">
+        <nav className="flex flex-row md:flex-col flex-grow items-center md:items-stretch justify-around md:justify-start gap-1 md:gap-2 px-1 md:px-3 w-full">
           {[
-            { id: 'profile', icon: <User size={20} />, label: '1. Profil' },
-            { id: 'contact', icon: <Layout size={20} />, label: '2. Contact & Réseaux' },
-            { id: 'appearance', icon: <Palette size={20} />, label: '3. Apparence' },
-            { id: 'links', icon: <LinkIcon size={20} />, label: '4. Links' }
+            { id: 'profile', icon: <User size={20} />, label: 'Profil' },
+            { id: 'contact', icon: <Layout size={20} />, label: 'Contact' },
+            { id: 'appearance', icon: <Palette size={20} />, label: 'Look' },
+            { id: 'links', icon: <LinkIcon size={20} />, label: 'Liens' }
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
+              className={`flex md:w-full items-center justify-center md:justify-start gap-3 px-3 md:px-4 py-2 md:py-3 rounded-xl transition-all ${
                 activeTab === tab.id 
                   ? 'bg-black text-white shadow-lg shadow-black/10' 
                   : 'text-black/60 hover:bg-black/5'
@@ -465,40 +451,31 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
               <span className="hidden md:block font-medium">{tab.label}</span>
             </button>
           ))}
-        </nav>
-
-        <div className="px-3 pt-6 border-t border-black/5">
+          
           <button 
             onClick={logout}
-            className="w-full flex items-center gap-4 px-4 py-3 text-black/40 hover:text-red-500 transition-colors"
+            className="flex md:w-full items-center justify-center md:justify-start gap-3 px-3 md:px-4 py-2 md:py-3 text-black/40 hover:text-red-500 transition-colors"
           >
             <LogOut size={20} />
-            <span className="hidden md:block font-medium">Logout</span>
+            <span className="hidden md:block text-sm font-medium">Logout</span>
           </button>
-        </div>
+        </nav>
 
-        <div className="px-6 py-4 mt-2 space-y-4">
+        <div className="hidden md:block px-3 py-4 mt-auto border-t border-black/5 space-y-4">
           <div className={`p-3 rounded-2xl border flex items-center gap-3 ${currentUser ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
             <div className={`w-2 h-2 rounded-full ${currentUser ? 'bg-green-500' : 'bg-orange-500'} animate-pulse`} />
             <div className="overflow-hidden">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-black/30">Connecté en tant que</p>
-              <p className="text-xs font-bold truncate text-black/70">
-                {currentUser?.email || 'Mode Démo / Local'}
+              <p className="text-[10px] font-bold uppercase tracking-widest text-black/30">Compte</p>
+              <p className="text-[10px] font-bold truncate text-black/70">
+                {currentUser?.email || 'Mode Démo'}
               </p>
             </div>
           </div>
-
-          <button 
-            onClick={() => alert(`COPIEZ CE CODE DANS LE SQL EDITOR DE SUPABASE (https://supabase.com/dashboard/project/_/sql/new) :\n\n-- 1. CRÉATION DES TABLES\nCREATE TABLE IF NOT EXISTS wc_profiles (\n    id UUID PRIMARY KEY REFERENCES auth.users(id),\n    username TEXT UNIQUE,\n    full_name TEXT,\n    name TEXT,\n    bio TEXT,\n    avatar_url TEXT,\n    theme TEXT,\n    socials JSONB DEFAULT '{}'::jsonb,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\n\nCREATE TABLE IF NOT EXISTS wc_links (\n    id BIGSERIAL PRIMARY KEY,\n    profile_id UUID REFERENCES wc_profiles(id) ON DELETE CASCADE,\n    title TEXT,\n    url TEXT,\n    is_active BOOLEAN DEFAULT TRUE,\n    position INTEGER,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\n\n-- 2. RÉPARATION DES COLONNES SI DÉJÀ EXISTANTES\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS name TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS bio TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS theme TEXT;\nALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;\n\n-- 3. UNICITÉ DU PSEUDO\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wc_profiles_username_key') THEN\n        ALTER TABLE wc_profiles ADD CONSTRAINT wc_profiles_username_key UNIQUE (username);\n    END IF;\nEND $$;\n\n-- 4. SÉCURITÉ (RLS)\nALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;\nALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;\n\n-- 5. POLITIQUES D'ACCÈS (CRITICAL)\nDROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;\nCREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;\nCREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);\n\nDROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;\nCREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow individual links access" ON wc_links;\nCREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id) WITH CHECK (auth.uid() = profile_id);`)}
-            className="w-full text-[10px] bg-red-600 text-white p-3 rounded-xl font-bold hover:bg-black transition-all uppercase text-center shadow-lg flex items-center justify-center gap-2"
-          >
-            <RefreshCw size={12} /> Réparer la Base de Données
-          </button>
         </div>
       </aside>
 
       {/* Main Editor Area */}
-      <main className="flex-grow overflow-y-auto px-6 md:px-12 py-12 flex flex-col md:flex-row gap-12">
+      <main className="flex-grow overflow-y-auto px-4 md:px-12 py-6 md:py-12 pb-24 md:pb-12 flex flex-col lg:flex-row gap-8 md:gap-12">
         <div className="flex-grow max-w-2xl">
           <AnimatePresence mode="wait">
             {activeTab === 'profile' && (
@@ -509,43 +486,141 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 exit={{ opacity: 0, x: 10 }}
                 className="space-y-10"
               >
-                <div className="flex items-center justify-between mb-8">
-                  <h1 className="text-3xl font-bold">Profile Details</h1>
-                  <div className="flex items-center gap-4">
-                    {saveStatus.type === 'success' && <span className="text-xs font-bold text-green-500 uppercase tracking-widest animate-pulse">Saved Successfully!</span>}
-                    {saveStatus.type === 'error' && <span className="text-xs font-bold text-red-500 uppercase tracking-widest">Error Saving</span>}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h1 className="text-2xl md:text-3xl font-bold">Profile Details</h1>
+                    <p className="text-[9px] md:text-[10px] text-black/30 font-mono">ID: {currentUser?.id}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button 
+                      onClick={() => setShowSqlRepair(!showSqlRepair)}
+                      className={`text-[10px] px-3 md:px-4 py-2 rounded-full font-bold transition-all uppercase flex items-center gap-2 border ${
+                        showSqlRepair ? 'bg-black text-white' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                      }`}
+                    >
+                      <RefreshCw size={12} /> 
+                      <span className="hidden sm:inline">{showSqlRepair ? 'Masquer le code SQL' : 'Réparer la base (SQL)'}</span>
+                      <span className="sm:hidden">{showSqlRepair ? 'Masquer SQL' : 'Réparer'}</span>
+                    </button>
+                    {saveStatus.type === 'success' && <span className="text-xs font-bold text-green-500 uppercase tracking-widest animate-pulse">Enregistré !</span>}
                     <button 
                       onClick={() => saveToSupabase(profile)}
                       disabled={isSaving}
-                      className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold shadow-lg transition-all ${
+                      className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-full font-bold shadow-lg transition-all ${
                         isSaving ? 'bg-stone-400' : 'bg-black text-white hover:bg-stone-800'
-                      } disabled:opacity-50`}
+                      } disabled:opacity-50 text-sm md:text-base`}
                     >
                       {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                      {isSaving ? 'Saving...' : 'Save Changes'}
+                      <span>{isSaving ? 'Enregistrement...' : 'Save Changes'}</span>
                     </button>
                   </div>
                 </div>
+
+                {/* Diagnostic Box */}
+                <div className="bg-white border border-black/5 p-6 rounded-3xl shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${lastSync ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                      {lastSync ? <Check size={24} /> : <RefreshCw size={24} className={isSaving ? 'animate-spin' : ''} />}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm">État de votre lien public</h3>
+                      <p className="text-xs text-black/40">
+                        {profile.username ? `Lien configuré : women.cards/${profile.username.toLowerCase()}` : "⚠️ Pseudo non défini dans l'onglet Profil"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    {profile.username && (
+                      <a 
+                        href={`/${profile.username.toLowerCase()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-grow sm:flex-grow-0 px-6 py-3 bg-black text-white rounded-full text-xs font-bold transition-all hover:scale-105 text-center"
+                      >
+                        Voir ma page en ligne
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {showSqlRepair && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="bg-red-50 border border-red-100 rounded-3xl p-6 space-y-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-red-800 font-bold text-sm uppercase tracking-wider">🛠 SQL de Réparation</h3>
+                      <button 
+                        onClick={() => {
+                          const code = (document.getElementById('sql-code') as HTMLTextAreaElement).value;
+                          navigator.clipboard.writeText(code);
+                          alert('Code copié !');
+                        }}
+                        className="text-[10px] bg-red-600 text-white px-3 py-1 rounded-full font-bold hover:bg-red-700"
+                      >
+                        Copier le code
+                      </button>
+                    </div>
+                    <p className="text-xs text-red-700/70">
+                      Copiez ce code et collez-le dans le <b>SQL Editor</b> de votre projet Supabase, puis cliquez sur <b>RUN</b>.
+                    </p>
+                    <textarea 
+                      id="sql-code"
+                      readOnly
+                      rows={12}
+                      className="w-full bg-white/50 border border-red-200 rounded-xl p-4 font-mono text-[10px] text-red-900 focus:ring-0"
+                      value={`-- 1. TABLES ET COLONNES (Lancer tout le bloc)
+CREATE TABLE IF NOT EXISTS wc_profiles (id UUID PRIMARY KEY REFERENCES auth.users(id), username TEXT UNIQUE, full_name TEXT, name TEXT, bio TEXT, avatar_url TEXT, theme TEXT, socials JSONB DEFAULT '{}'::jsonb, updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW());
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE wc_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- 2. SÉCURITÉ RLS
+ALTER TABLE wc_profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON wc_profiles;
+CREATE POLICY "Public profiles are viewable by everyone" ON wc_profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow individual upsert" ON wc_profiles;
+CREATE POLICY "Allow individual upsert" ON wc_profiles FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+-- 3. LINKS
+CREATE TABLE IF NOT EXISTS wc_links (id BIGSERIAL PRIMARY KEY, profile_id UUID REFERENCES wc_profiles(id) ON DELETE CASCADE, title TEXT, url TEXT, is_active BOOLEAN DEFAULT TRUE, position INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW());
+ALTER TABLE wc_links ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public links are viewable by everyone" ON wc_links;
+CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow individual links access" ON wc_links;
+CREATE POLICY "Allow individual links access" ON wc_links FOR ALL USING (auth.uid() = profile_id) WITH CHECK (auth.uid() = profile_id);`}
+                    />
+                  </motion.div>
+                )}
+
+                {dbDiagnostic && (
+                  <div className="bg-orange-50 border border-orange-100 p-4 rounded-2xl flex items-center gap-3 text-orange-800 text-xs font-mono">
+                    <span className="font-bold">DIAGNOSTIC:</span> {dbDiagnostic}
+                  </div>
+                )}
                 
-                <div className="flex items-center gap-8 bg-white p-8 rounded-3xl border border-black/5 shadow-sm">
+                <div className="flex flex-col sm:flex-row items-center gap-6 bg-white p-6 md:p-8 rounded-3xl border border-black/5 shadow-sm">
                   <div className="relative group">
                     <img 
                       src={profile.avatar || undefined} 
                       alt="Avatar" 
-                      className="w-24 h-24 rounded-full object-cover shadow-lg group-hover:opacity-80 transition-opacity"
+                      className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover shadow-lg group-hover:opacity-80 transition-opacity border-4 border-white"
                     />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                       <User size={24} className="text-white" />
                     </div>
                   </div>
-                  <div className="space-y-4 flex-grow">
+                  <div className="space-y-4 w-full flex-grow">
                     <div>
-                      <label className="text-xs font-bold uppercase tracking-widest text-black/40 block mb-1">Avatar URL</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-black/40 block mb-1">Avatar URL</label>
                       <input 
                         type="text" 
                         value={profile.avatar}
                         onChange={(e) => setProfile(prev => ({ ...prev, avatar: e.target.value }))}
-                        className="w-full bg-[#fcfcfb] border-none rounded-lg text-sm focus:ring-[#c5a059]"
+                        className="w-full bg-[#fcfcfb] border-2 border-black/5 rounded-xl py-2 px-4 text-sm focus:ring-[#c5a059] focus:border-[#c5a059]"
+                        placeholder="https://images.unsplash.com/..."
                       />
                     </div>
                   </div>
@@ -595,12 +670,12 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 exit={{ opacity: 0, x: 10 }}
                 className="space-y-10"
               >
-                <div className="flex items-center justify-between mb-8">
-                  <h1 className="text-3xl font-bold">Contact & Réseaux</h1>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                  <h1 className="text-2xl md:text-3xl font-bold">Contact & Réseaux</h1>
                   <button 
                     onClick={() => saveToSupabase(profile)}
                     disabled={isSaving}
-                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
                   >
                     {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                     {isSaving ? 'Saving...' : 'Save Changes'}
@@ -712,12 +787,12 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
               >
-                <div className="flex items-center justify-between mb-8">
-                  <h1 className="text-3xl font-bold">Theme Selection</h1>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                  <h1 className="text-2xl md:text-3xl font-bold">Theme Selection</h1>
                   <button 
                     onClick={() => saveToSupabase(profile)}
                     disabled={isSaving}
-                    className="flex items-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-black text-white rounded-full font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all"
                   >
                     {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                     {isSaving ? 'Saving...' : 'Save Changes'}
@@ -753,20 +828,20 @@ CREATE POLICY "Public links are viewable by everyone" ON wc_links FOR SELECT USI
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
               >
-                <div className="flex items-center justify-between mb-8">
-                  <h1 className="text-3xl font-bold">Your Links</h1>
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                  <h1 className="text-2xl md:text-3xl font-bold">Your Links</h1>
+                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                     <button 
                       onClick={() => saveToSupabase(profile)}
                       disabled={isSaving}
-                      className="flex items-center gap-2 px-6 py-2 border-2 border-black text-black rounded-full font-bold hover:bg-black hover:text-white disabled:opacity-50 transition-all"
+                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 border-2 border-black text-black rounded-full font-bold hover:bg-black hover:text-white disabled:opacity-50 transition-all"
                     >
                       {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                      {isSaving ? 'Saving...' : 'Save Changes'}
+                      <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
                     </button>
                     <button 
                       onClick={addLink}
-                      className="bg-[#c5a059] text-white px-6 py-2 rounded-full font-bold shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2"
+                      className="w-full sm:w-auto bg-[#c5a059] text-white px-6 py-2 rounded-full font-bold shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
                       <Plus size={20} /> Add New Link
                     </button>
